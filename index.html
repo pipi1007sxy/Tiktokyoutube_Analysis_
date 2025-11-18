@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | Data Analysis Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@600;700&display=swap">
+    <style>
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: var(--bg-primary);
+            padding: 20px;
+            position: relative;
+        }
+        .login-card {
+            background: var(--bg-card);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: var(--shadow-medium);
+            width: 100%;
+            max-width: 400px;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+        }
+        .login-title {
+            text-align: center;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            font-family: 'Poppins', sans-serif;
+        }
+        .login-subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            font-family: 'Inter', sans-serif;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1.5px solid rgba(0, 0, 0, 0.08);
+            border-radius: 16px;
+            font-size: 1rem;
+            transition: all 0.3s;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: var(--morandi-sage);
+            box-shadow: 0 0 0 3px rgba(184, 197, 166, 0.1);
+        }
+        .user-type-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .user-type-btn {
+            flex: 1;
+            padding: 12px;
+            border: 1.5px solid rgba(0, 0, 0, 0.08);
+            border-radius: 16px;
+            background: var(--bg-primary);
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+        .user-type-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--morandi-sage);
+        }
+        .user-type-btn.active {
+            background: var(--morandi-sage);
+            color: white;
+            border-color: var(--morandi-sage);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--morandi-sage), var(--accent-strong));
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: 'Inter', sans-serif;
+        }
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-medium);
+        }
+        .error-message {
+            color: #B8A082;
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <h1 class="login-title">Data Analysis Platform</h1>
+            <p class="login-subtitle">TikTok & YouTube Analytics</p>
+            
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <input type="text" id="username" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <input type="password" id="password" class="form-input" required>
+                </div>
+                
+                <div class="user-type-group">
+                    <button type="button" class="user-type-btn" data-type="user" onclick="selectUserType('user')">
+                        User
+                    </button>
+                    <button type="button" class="user-type-btn" data-type="admin" onclick="selectUserType('admin')">
+                        Admin
+                    </button>
+                </div>
+                
+                <button type="submit" class="login-btn">Login</button>
+                
+                <div id="errorMessage" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let selectedUserType = 'user';
+        
+        function selectUserType(type) {
+            selectedUserType = type;
+            document.querySelectorAll('.user-type-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-type="${type}"]`).classList.add('active');
+        }
+        
+        // Set default to user
+        selectUserType('user');
+        
+        function handleLogin(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            
+            errorDiv.textContent = '';
+            
+            fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: username,
+                    password: password,
+                    user_type: selectedUserType
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (selectedUserType === 'admin') {
+                        window.location.href = '/admin';
+                    } else {
+                        window.location.href = '/home';
+                    }
+                } else {
+                    errorDiv.textContent = data.message || 'Login failed. Please check your credentials.';
+                }
+            })
+            .catch(error => {
+                console.error('Login error:', error);
+                errorDiv.textContent = 'Network error. Please try again.';
+            });
+        }
+    </script>
+</body>
+</html>
+

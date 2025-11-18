@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Short Video Data Analysis Platform | TikTok & YouTube</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div class="main-wrapper">
+        <!-- Left Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">Data Analysis</h1>
+                <p class="subtitle">TikTok & YouTube Platform</p>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-tab="platforms">
+                    <span class="nav-text">Platform List</span>
+                </button>
+                <button class="nav-btn" data-tab="countries">
+                    <span class="nav-text">Countries & Regions</span>
+                </button>
+                <button class="nav-btn" data-tab="global">
+                    <span class="nav-text">Global Analysis</span>
+                </button>
+                <button class="nav-btn" data-tab="hashtag">
+                    <span class="nav-text">Trending Hashtags</span>
+                </button>
+                <button class="nav-btn" data-tab="trend">
+                    <span class="nav-text">Trend Analysis</span>
+                </button>
+                <button class="nav-btn" data-tab="publish-timing">
+                    <span class="nav-text">Publish Time</span>
+                </button>
+                <button class="nav-btn" data-tab="creator-performance">
+                    <span class="nav-text">Creator Performance</span>
+                </button>
+                <button class="nav-btn" data-tab="region-ad-reco">
+                    <span class="nav-text">Region Ad Reco</span>
+                </button>
+                <button class="nav-btn" data-tab="platform-dominance-extended">
+                    <span class="nav-text">Dominance Extended</span>
+                </button>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-wrapper">
+            <div class="content-container">
+                <!-- 1. Platform List -->
+                <div id="platforms" class="content-section active">
+                    <div class="section-header">
+                        <h2>Supported Platforms</h2>
+                        <p class="section-description">View all available short video platforms in the system</p>
+                    </div>
+                    <div id="platforms-list" class="result-grid"></div>
+                </div>
+
+                <!-- 2. Countries & Regions List -->
+                <div id="countries" class="content-section">
+                    <div class="section-header">
+                        <h2>Countries & Regions List</h2>
+                        <p class="section-description">View all supported countries and regions information</p>
+                    </div>
+                    <div id="countries-list" class="result-grid"></div>
+                </div>
+
+                <!-- 3. Global Data Analysis -->
+                <div id="global" class="content-section">
+                    <div class="section-header">
+                        <h2>Global Data Analysis Report</h2>
+                        <p class="section-description">Analyze global data performance of specified platform in a specific time period</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <select id="global-platform" class="form-select">
+                                <option value="">Select Platform</option>
+                            </select>
+                            <input type="text" id="global-month" class="form-input" placeholder="Year-Month (e.g., 2025-04)">
+                            <button class="action-btn" onclick="runGlobalAnalysis()">
+                                <span>Generate Report</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="global-result" class="analysis-result"></div>
+                </div>
+
+                <!-- 5. Trending Hashtags -->
+                <div id="hashtag" class="content-section">
+                    <div class="section-header">
+                        <h2>Trending Hashtags Analysis</h2>
+                        <p class="section-description">Discover the most popular hashtags on specified platform and region</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <select id="hashtag-platform" class="form-select">
+                                <option value="">Select Platform</option>
+                            </select>
+                            <input type="text" id="hashtag-country" class="form-input" placeholder="Country Code (e.g., US)">
+                            <input type="number" id="hashtag-min-views" class="form-input" placeholder="Minimum Views">
+                            <button class="action-btn" onclick="runHashtagReport()">
+                                <span>Generate Report</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="hashtag-result" class="analysis-result"></div>
+                </div>
+
+                <!-- 6. Content Trend Analysis -->
+                <div id="trend" class="content-section">
+                    <div class="section-header">
+                        <h2>Content Trend Type Analysis</h2>
+                        <p class="section-description">Analyze view distribution of different trend types</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <select id="trend-platform" class="form-select">
+                                <option value="">Select Platform</option>
+                            </select>
+                            <input type="text" id="trend-country" class="form-input" placeholder="Country Code (e.g., US)">
+                            <input type="text" id="trend-start-date" class="form-input" placeholder="Start Date (YYYY-MM-DD)">
+                            <input type="text" id="trend-end-date" class="form-input" placeholder="End Date (YYYY-MM-DD)">
+                            <button class="action-btn" onclick="runTrendReport()">
+                                <span>Generate Report</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="trend-result" class="analysis-result"></div>
+                </div>
+
+                <!-- 7. Optimal Publish Time Analysis -->
+                <div id="publish-timing" class="content-section">
+                    <div class="section-header">
+                        <h2>Optimal Publish Time Analysis</h2>
+                        <p class="section-description">Find optimal publish time for better content performance</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <select id="publish-platform" class="form-select">
+                                <option value="">Select Platform</option>
+                            </select>
+                            <select id="time-analysis" class="form-select">
+                                <option value="Day Parts">Day Parts Analysis</option>
+                                <option value="Week Analysis">Week Analysis</option>
+                                <option value="Hourly">Hourly Analysis</option>
+                            </select>
+                            <input type="text" id="start-month" class="form-input" placeholder="Start Month (YYYY-MM)">
+                            <input type="text" id="end-month" class="form-input" placeholder="End Month (YYYY-MM)">
+                            <button class="action-btn" onclick="runPublishTimingAnalysis()">
+                                <span>Generate Report</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="publish-timing-result" class="analysis-result"></div>
+                </div>
+
+                <!-- 8. Creator Performance Report -->
+                <div id="creator-performance" class="content-section">
+                    <div class="section-header">
+                        <h2>Creator Ecosystem & Tier Performance</h2>
+                        <p class="section-description">Analyze creator tiers'' contribution within a time window</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <select id="creator-platform" class="form-select">
+                                <option value="">Select Platform</option>
+                            </select>
+                            <select id="creator-scope" class="form-select">
+                                <option>All (all tiers)</option>
+                                <option>Micro Only</option>
+                                <option>Mid Only</option>
+                                <option>Macro Only</option>
+                                <option>Star Only</option>
+                            </select>
+                            <input type="text" id="creator-start-month" class="form-input" placeholder="Start Month (YYYY-MM)">
+                            <input type="text" id="creator-end-month" class="form-input" placeholder="End Month (YYYY-MM)">
+                            <button class="action-btn" onclick="runCreatorPerformance()">
+                                <span>Generate Report</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="creator-performance-result" class="analysis-result"></div>
+                    <!-- chart removed per request -->
+                </div>
+
+                <!-- 9. Regional Advertising Recommendation -->
+                <div id="region-ad-reco" class="content-section">
+                    <div class="section-header">
+                        <h2>Regional Advertising Recommendation</h2>
+                        <p class="section-description">Find best categories per platform in region and ad recommendation</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <input type="text" id="region-name" class="form-input" placeholder="Region (e.g., Asia)">
+                            <button class="action-btn" onclick="runRegionAdReco()">
+                                <span>Generate Report</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="region-ad-result" class="analysis-result"></div>
+                    <!-- charts removed per request -->
+                </div>
+
+                <!-- 10. Platform Dominance Extended -->
+                <div id="platform-dominance-extended" class="content-section">
+                    <div class="section-header">
+                        <h2>Short Video Platform Dominance Analysis by Country</h2>
+                        <p class="section-description">Extended dominance analysis by country code</p>
+                    </div>
+                    <div class="input-card">
+                        <div class="input-row">
+                            <input type="text" id="pd-country-code" class="form-input" placeholder="Country Code (e.g., US)">
+                            <button class="action-btn" onclick="runDominanceExtended()">
+                                <span>Analyze</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="pd-extended-result" class="analysis-result"></div>
+                    <!-- chart removed per request -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='css/js/script.js') }}"></script>
+</body>
+</html>
