@@ -2,11 +2,8 @@ from flask import Flask, render_template, request, jsonify, session, redirect
 import sqlite3
 from sqlite3 import Error
 import matplotlib.pyplot as plt
-import numpy as np
-from io import BytesIO
-import base64
 import matplotlib
-from jinja2 import Template, Environment
+from jinja2 import Environment
 import json
 import html
 import re
@@ -15,27 +12,6 @@ try:
     import markdown  # Optional; used to render Markdown to HTML  # pyright: ignore[reportMissingModuleSource]
 except Exception:
     markdown = None
-
-# 低饱和度莫兰迪色系
-COLOR_ENGAGEMENT = '#B8A082'  # 灰褐色
-COLOR_VIEWS = '#A8B89A'       # 鼠尾草绿
-COLOR_COMPLETION = '#9DB5C7'  # 灰蓝色
-COLOR_POSITIVE = '#C4B5A6'    # 米色（高于平均）
-COLOR_NEGATIVE = '#B8C5A6'    # 淡绿色（低于平均）
-
-# 图表配色方案 - 莫兰迪色系
-MORANDI_COLORS = ['#B8A082', '#A8B89A', '#9DB5C7', '#C4B5A6', '#B8C5A6', '#D4C4B0', '#B8D4E3', '#C4B5C7']
-MORANDI_BOLD_COLORS = [
-    "#B8A082", # beige
-    "#A0CFBA", # sage green
-    "#899DCC", # lavender-blue
-    "#F2C6B4", # pink-peach
-    "#B4A7D6", # light violet
-    "#7B8FA6", # blue-gray
-    "#DDB8A0", # brown peach
-    "#DBC585", # ochre-yellow
-    "#F5CCA0", # cream-sand
-]
 
 # 全局字体配置 - 修复字体报错
 matplotlib.rcParams['font.size'] = 9
@@ -299,6 +275,39 @@ def list_all_countries(conn):
             FROM Country c JOIN Content ct ON c.country_id = ct.country_id
         """)
         return [{"code": row[0], "name": row[1], "region": row[2], "language": row[3]} for row in cur.fetchall()]
+
+def list_all_year_months(conn):
+    """Get all available year-month combinations"""
+    with conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT year_month 
+            FROM Content 
+            WHERE year_month IS NOT NULL 
+            ORDER BY year_month
+        """)
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            year_month = row[0]
+            # Parse year-month string (e.g., "2025-01")
+            if year_month and len(year_month) == 7:
+                year = year_month[:4]
+                month = year_month[5:7]
+                month_names = {
+                    "01": "January", "02": "February", "03": "March", "04": "April",
+                    "05": "May", "06": "June", "07": "July", "08": "August",
+                    "09": "September", "10": "October", "11": "November", "12": "December"
+                }
+                month_name = month_names.get(month, month)
+                result.append({
+                    "year_month": year_month,
+                    "year": year,
+                    "month": month,
+                    "month_name": month_name,
+                    "display": f"{month_name} {year}"
+                })
+        return result
 
 def generate_global_analysis(conn, platform, year_month):
     with conn:
@@ -812,387 +821,220 @@ def generate_platform_dominance_extended(conn, country_code):
             "error": ""
         }
 
-def generate_publish_timing_analysis(conn, platform, time_analysis, start_month, end_month):
-    """Generate publish timing analysis report"""
+def get_country_code(conn, country):
+    """Get country code by name, fall back to checking if input is already a code."""
+    cur = conn.cursor()
+    # Try by name or code
+    cur.execute("SELECT country_code FROM Country WHERE country_name = ? OR country_code = ?", (country, country))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def generate_publish_timing_analysis(conn, platform, time_analysis='Hourly', period='All Time', start_month=None, end_month=None):
+    """
+    Generate publish timing analysis report with support for multiple dimensions
+    
+    Args:
+        conn: Database connection
+        platform: Platform name (TikTok/YouTube)
+        time_analysis: Analysis dimension ('Hourly', 'Day Parts', 'Week Analysis')
+        period: Analysis period ('All Time', 'Custom')
+        start_month: Start month in format 'YYYY-MM' (required if period='Custom')
+        end_month: End month in format 'YYYY-MM' (required if period='Custom')
+    
+    Returns:
+        Dictionary containing analysis results, charts data, and report
+    """
+
+    cursor = conn.cursor()
+    period_display = "All Time"
+    
+    # Build date filter
+    date_filter = ""
+    params = [platform]
+    if period == 'Custom' and start_month and end_month:
+        date_filter = " AND c.year_month BETWEEN ? AND ?"
+        params.extend([start_month, end_month])
+        period_display = f"{start_month} to {end_month}"
+    
+    # Process based on time_analysis dimension
+    if time_analysis == 'Hourly':
+        return _process_hourly_analysis(cursor, conn, platform, period_display, date_filter, params)
+    elif time_analysis == 'Day Parts':
+        return _process_dayparts_analysis(cursor, conn, platform, period_display, date_filter, params)
+    elif time_analysis == 'Week Analysis':
+        return _process_week_analysis(cursor, conn, platform, period_display, date_filter, params)
+    else:
+        return {"error": f"Invalid time_analysis: {time_analysis}. Must be 'Hourly', 'Day Parts', or 'Week Analysis'"}
+
+
+def _process_hourly_analysis(cursor, conn, platform, period_display, date_filter, params):
+    """Process hourly analysis"""
+    # Get SQL query from database
     try:
-        with conn:
-            cursor = conn.cursor()
-            
-            # Build date condition
-            date_condition = f"year_month BETWEEN '{start_month}' AND '{end_month}'"
-            period_display = f"{start_month} to {end_month}"
-            
-            # Platform name standardization
-            corrected_platform = "TikTok" if platform.lower() == "tiktok" else platform
+        sql = get_sql(conn, 'publish_timing_hourly')
+        # Add date filter if needed
+        if date_filter:
+            sql = sql.replace('WHERE c.platform = ?', 
+                            f'WHERE c.platform = ?{date_filter}')
+    except ValueError as e:
+        return {"error": f"SQL query not found: {e}"}
 
-            # Execute corresponding analysis
-            if time_analysis == "Day Parts":
-                result = analyze_day_parts_focused(cursor, corrected_platform, date_condition, period_display)
-            elif time_analysis == "Week Analysis":
-                result = analyze_week_analysis_focused(cursor, corrected_platform, date_condition, period_display)
-            else:  # Hourly
-                result = analyze_hourly_focused(cursor, corrected_platform, date_condition, period_display)
-
-            return result
-
+    try:
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
     except Error as e:
         return {"error": f"Database query error: {e}"}
 
-def analyze_day_parts_focused(cursor, platform, date_condition, period_display):
-    """Day parts analysis"""
-    sql_tpl = get_sql(cursor.connection, "dayparts_main")
-    sql = sql_tpl.format(date_condition=date_condition)
-    cursor.execute(sql, [platform])
-
-    period_results = cursor.fetchall()
-
-    # Data processing
-    periods = []
-    engagement_rates = []
-    completion_rates = []
-    view_counts = []
-    watch_times = []
-    content_counts = []
-    eng_diff_pct = []
-
-    for row in period_results:
-        period_name, engagement, max_eng, min_eng, completion, views, watch_time, count = row
-        if period_name and engagement > 0:
-            periods.append(period_name)
-            eng_pct = round(engagement * 100, 2)
-            comp_pct = round(completion * 100, 2)
-            engagement_rates.append(eng_pct)
-            completion_rates.append(comp_pct)
-            view_counts.append(round(views, 0))
-            watch_times.append(round(watch_time, 1))
-            content_counts.append(count)
-
-    # Calculate percentage differences from average
-    if engagement_rates:
-        avg_eng_total = round(sum(engagement_rates) / len(engagement_rates), 2)
-        eng_diff_pct = [round((eng - avg_eng_total) / avg_eng_total * 100, 1) for eng in engagement_rates]
-        best_period_idx = eng_diff_pct.index(max(eng_diff_pct))
-        worst_period_idx = eng_diff_pct.index(min(eng_diff_pct))
-        max_diff = max(abs(d) for d in eng_diff_pct)
-        top3_idxs = sorted(range(len(eng_diff_pct)), key=lambda x: eng_diff_pct[x], reverse=True)[:3]
-        top3_str = ", ".join([f"{periods[idx]} (+{eng_diff_pct[idx]:.1f}%, {engagement_rates[idx]:.2f}%, n={content_counts[idx]})" for idx in top3_idxs])
-    else:
-        avg_eng_total = 0
-        best_period_idx = worst_period_idx = max_diff = 0
-        top3_str = ""
-
-
-    # Generate report
-    if periods:
-        best_period_name = periods[best_period_idx]
-        worst_period_name = periods[worst_period_idx]
-        best_period_diff = eng_diff_pct[best_period_idx]
-        worst_period_diff = eng_diff_pct[worst_period_idx]
-        best_period_eng = engagement_rates[best_period_idx]
-        worst_period_eng = engagement_rates[worst_period_idx]
-        best_period_count = content_counts[best_period_idx]
-        worst_period_count = content_counts[worst_period_idx]
-
-        context = {
+    if not rows:
+        return {
             "platform": platform,
+            "time_analysis": "Hourly",
             "period_display": period_display,
-            "avg_eng_total": avg_eng_total,
-            "max_diff": max_diff,
-            "top3_str": top3_str,
-            "best_period_name": best_period_name,
-            "best_period_diff": best_period_diff,
-            "best_period_eng": best_period_eng,
-            "best_period_count": best_period_count,
-            "worst_period_name": worst_period_name,
-            "worst_period_diff": worst_period_diff,
-            "worst_period_eng": worst_period_eng,
-            "worst_period_count": worst_period_count
-        }
-        err = validate_context_fields_by_db(cursor.connection, "publish_dayparts", context)
-        if err:
-            return {
-                "platform": platform,
-                "time_analysis": "Day Parts",
-                "period_display": period_display,
-                "report": "",
-                "report_markdown": None,
-                "report_html": None,
-                "data": None,
-                "error": err
-            }
-        rendered = render_report_from_db(conn=cursor.connection, slug="publish_dayparts", context=context)
-    else:
-        rendered = {
-            "text": f"No valid data found for the selected time period on the {platform} platform between {period_display}.",
-            "markdown": f"No valid data found for the selected time period on the {platform} platform between {period_display}.",
-            "html": f"<p>No valid data found for the selected time period on the {platform} platform between {period_display}.</p>"
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": "No data available for the selected criteria."
         }
 
-    return {
-        "platform": platform,
-        "time_analysis": "Day Parts",
-        "period_display": period_display,
-        "report": rendered["text"],
-        "report_markdown": rendered["markdown"],
-        "report_html": rendered["html"],
-        "data": {
-            "periods": periods,
-            "engagement_rates": engagement_rates,
-            "completion_rates": completion_rates,
-            "content_counts": content_counts,
-            "eng_diff_pct": eng_diff_pct
-        } if periods else None,
-        "error": ""
-    }
-
-def analyze_week_analysis_focused(cursor, platform, date_condition, period_display):
-    """Week analysis"""
-    sql_tpl = get_sql(cursor.connection, "week_main")
-    sql = sql_tpl.format(date_condition=date_condition)
-    cursor.execute(sql, [platform])
-
-    week_results = cursor.fetchall()
-
-    # Data processing
-    days = []
-    engagement_rates = []
-    view_counts = []
-    completion_rates = []
-    content_counts = []
-    eng_diff_pct = []
-
-    for row in week_results:
-        day, engagement, max_eng, min_eng, views, completion, count = row
-        if day and engagement > 0:
-            days.append(day)
-            eng_pct = round(engagement * 100, 2)
-            comp_pct = round(completion * 100, 2)
-            engagement_rates.append(eng_pct)
-            view_counts.append(round(views, 0))
-            completion_rates.append(comp_pct)
-            content_counts.append(count)
-
-    # Calculate key metrics
-    if engagement_rates:
-        avg_eng_total = round(sum(engagement_rates) / len(engagement_rates), 2)
-        eng_diff_pct = [round((eng - avg_eng_total) / avg_eng_total * 100, 1) for eng in engagement_rates]
-        best_day_idx = eng_diff_pct.index(max(eng_diff_pct))
-        worst_day_idx = eng_diff_pct.index(min(eng_diff_pct))
-        max_diff = max(abs(d) for d in eng_diff_pct)
-        top3_idxs = sorted(range(len(eng_diff_pct)), key=lambda x: eng_diff_pct[x], reverse=True)[:3]
-        top3_str = ", ".join([f"{days[idx]} (+{eng_diff_pct[idx]:.1f}%, {engagement_rates[idx]:.2f}%, n={content_counts[idx]})" for idx in top3_idxs])
-
-        weekday_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-        weekend_days = ['Saturday', 'Sunday']
-        weekday_eng = sum(engagement_rates[days.index(d)] for d in weekday_days if d in days) / len([d for d in weekday_days if d in days]) if [d for d in weekday_days if d in days] else 0
-        weekend_eng = sum(engagement_rates[days.index(d)] for d in weekend_days if d in days) / len([d for d in weekend_days if d in days]) if [d for d in weekend_days if d in days] else 0
-        weekend_lift = round(((weekend_eng - weekday_eng) / weekday_eng) * 100, 1) if weekday_eng > 0 else 0
-    else:
-        avg_eng_total = weekday_eng = weekend_eng = weekend_lift = 0
-        best_day_idx = worst_day_idx = max_diff = 0
-        top3_str = ""
-
-
-    # Generate report
-    if days:
-        best_day_name = days[best_day_idx]
-        worst_day_name = days[worst_day_idx]
-        best_day_diff = eng_diff_pct[best_day_idx]
-        worst_day_diff = eng_diff_pct[worst_day_idx]
-        best_day_eng = engagement_rates[best_day_idx]
-        worst_day_eng = engagement_rates[worst_day_idx]
-        best_day_count = content_counts[best_day_idx]
-        worst_day_count = content_counts[worst_day_idx]
-
-        context = {
-            "platform": platform,
-            "period_display": period_display,
-            "avg_eng_total": avg_eng_total,
-            "max_diff": max_diff,
-            "top3_str": top3_str,
-            "best_day_name": best_day_name,
-            "best_day_diff": best_day_diff,
-            "best_day_eng": best_day_eng,
-            "best_day_count": best_day_count,
-            "worst_day_name": worst_day_name,
-            "worst_day_diff": worst_day_diff,
-            "worst_day_eng": worst_day_eng,
-            "worst_day_count": worst_day_count,
-            "weekend_eng": weekend_eng,
-            "weekday_eng": weekday_eng,
-            "weekend_lift": weekend_lift
-        }
-        err = validate_context_fields_by_db(cursor.connection, "publish_week", context)
-        if err:
-            return {
-                "platform": platform,
-                "time_analysis": "Week Analysis",
-                "period_display": period_display,
-                "report": "",
-                "report_markdown": None,
-                "report_html": None,
-                "data": None,
-                "error": err
-            }
-        rendered = render_report_from_db(conn=cursor.connection, slug="publish_week", context=context)
-    else:
-        rendered = {
-            "text": f"No valid data found for the selected time period on the {platform} platform between {period_display}.",
-            "markdown": f"No valid data found for the selected time period on the {platform} platform between {period_display}.",
-            "html": f"<p>No valid data found for the selected time period on the {platform} platform between {period_display}.</p>"
-        }
-        
-    return {
-        "platform": platform,
-        "time_analysis": "Week Analysis",
-        "period_display": period_display,
-        "report": rendered["text"],
-        "report_markdown": rendered["markdown"],
-        "report_html": rendered["html"],
-        "data": {
-            "days": days,
-            "engagement_rates": engagement_rates,
-            "view_counts": view_counts,
-            "completion_rates": completion_rates,
-            "content_counts": content_counts,
-            "eng_diff_pct": eng_diff_pct
-        } if days else None,
-        "error": ""
-    }
-
-def analyze_hourly_focused(cursor, platform, date_condition, period_display):
-    """Hourly analysis"""
-    sql_tpl = get_sql(cursor.connection, "hourly_main")
-    sql = sql_tpl.format(date_condition=date_condition)
-    cursor.execute(sql, [platform])
-
-    hourly_results = cursor.fetchall()
-
-    # Data processing
+    # Process data
     hours = []
     engagement_rates = []
-    view_counts = []
     completion_rates = []
     content_counts = []
     eng_diff_pct = []
 
-    for row in hourly_results:
+    for row in rows:
         hour, engagement, max_eng, min_eng, views, completion, count = row
-        if engagement > 0:
-            hours.append(hour)
-            eng_pct = round(engagement * 100, 2)
-            comp_pct = round(completion * 100, 2)
+        if hour is not None and 0 <= hour <= 23:
+            hours.append(int(hour))
+            eng_pct = round((engagement * 100) if engagement else 0, 2)
+            comp_pct = round((completion * 100) if completion else 0, 2)
             engagement_rates.append(eng_pct)
-            view_counts.append(round(views, 0))
             completion_rates.append(comp_pct)
-            content_counts.append(count)
+            content_counts.append(int(count or 0))
 
-    # Calculate key metrics
-    if engagement_rates:
-        avg_eng_total = round(sum(engagement_rates) / len(engagement_rates), 2)
-        eng_diff_pct = [round((eng - avg_eng_total) / avg_eng_total * 100, 1) for eng in engagement_rates]
-        peak_idx = eng_diff_pct.index(max(eng_diff_pct))
-        valley_idx = eng_diff_pct.index(min(eng_diff_pct))
-        max_diff = max(abs(d) for d in eng_diff_pct)
-
-        # Time segment analysis
-        time_slots = ['Late Night (0-4)', 'Early Morning (5-8)', 'Morning (9-11)',
-                     'Afternoon (12-16)', 'Evening (17-20)', 'Night (21-23)']
-        slot_diff = []
-        slot_eng = []
-        slot_counts = []
-
-        for i, slot in enumerate(time_slots):
-            if i == 0:
-                slot_hours = [h for h in hours if 0 <= h <= 4]
-            elif i == 1:
-                slot_hours = [h for h in hours if 5 <= h <= 8]
-            elif i == 2:
-                slot_hours = [h for h in hours if 9 <= h <= 11]
-            elif i == 3:
-                slot_hours = [h for h in hours if 12 <= h <= 16]
-            elif i == 4:
-                slot_hours = [h for h in hours if 17 <= h <= 20]
-            else:
-                slot_hours = [h for h in hours if 21 <= h <= 23]
-
-            if slot_hours:
-                slot_diff_val = sum(eng_diff_pct[hours.index(h)] for h in slot_hours) / len(slot_hours)
-                slot_eng_val = sum(engagement_rates[hours.index(h)] for h in slot_hours) / len(slot_hours)
-                slot_count_val = sum(content_counts[hours.index(h)] for h in slot_hours)
-            else:
-                slot_diff_val = 0
-                slot_eng_val = 0
-                slot_count_val = 0
-
-            slot_diff.append(round(slot_diff_val, 1))
-            slot_eng.append(round(slot_eng_val, 2))
-            slot_counts.append(slot_count_val)
-
-        best_segment_idx = slot_diff.index(max(slot_diff))
-        best_segment = time_slots[best_segment_idx].split(' (')[0]  # 修复这里，移除反斜杠
-        # 修复f-string中的反斜杠问题
-        segment_parts = []
-        for i in range(len(time_slots)):
-            if slot_counts[i] > 0:
-                segment_name = time_slots[i].split(' (')[0]  # 移除括号部分
-                segment_parts.append(f"{segment_name} ({slot_diff[i]:+.1f}%, {slot_eng[i]:.2f}%)")
-        segment_str = ", ".join(segment_parts)
-    else:
-        avg_eng_total = 0
-        peak_idx = valley_idx = max_diff = 0
-        best_segment = ""
-        segment_str = ""
-
-
-    # Generate report
-    if hours:
-        peak_hour = hours[peak_idx]
-        valley_hour = hours[valley_idx]
-        peak_diff = eng_diff_pct[peak_idx]
-        valley_diff = eng_diff_pct[valley_idx]
-        peak_eng = engagement_rates[peak_idx]
-        valley_eng = engagement_rates[valley_idx]
-        best_segment_diff = slot_diff[best_segment_idx]
-        best_segment_eng = slot_eng[best_segment_idx]
-        best_segment_count = slot_counts[best_segment_idx]
-
-        context = {
+    if not engagement_rates:
+        return {
             "platform": platform,
+            "time_analysis": "Hourly",
             "period_display": period_display,
-            "avg_eng_total": avg_eng_total,
-            "max_diff": max_diff,
-            "peak_hour": peak_hour,
-            "peak_diff": peak_diff,
-            "peak_eng": peak_eng,
-            "valley_hour": valley_hour,
-            "valley_diff": valley_diff,
-            "valley_eng": valley_eng,
-            "best_segment": best_segment,
-            "best_segment_diff": best_segment_diff,
-            "best_segment_eng": best_segment_eng,
-            "best_segment_count": best_segment_count,
-            "segment_str": segment_str
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": "No valid data found."
         }
-        err = validate_context_fields_by_db(cursor.connection, "publish_hourly", context)
-        if err:
-            return {
-                "platform": platform,
-                "time_analysis": "Hourly",
-                "period_display": period_display,
-                "report": "",
-                "report_markdown": None,
-                "report_html": None,
-                "data": None,
-                "error": err
-            }
-        rendered = render_report_from_db(conn=cursor.connection, slug="publish_hourly", context=context)
-    else:
-        rendered = {
-            "text": f"No valid data found for the selected time period on the {platform} platform between {period_display}.",
-            "markdown": f"No valid data found for the selected time period on the {platform} platform between {period_display}.",
-            "html": f"<p>No valid data found for the selected time period on the {platform} platform between {period_display}.</p>"
+    
+    # Calculate metrics
+    avg_eng_total = round(sum(engagement_rates) / len(engagement_rates), 2)
+    eng_diff_pct = [round((eng - avg_eng_total) / avg_eng_total * 100, 1) if avg_eng_total > 0 else 0 for eng in engagement_rates]
+    peak_idx = eng_diff_pct.index(max(eng_diff_pct))
+    valley_idx = eng_diff_pct.index(min(eng_diff_pct))
+    max_diff = max(abs(d) for d in eng_diff_pct)
+
+    # Time segment analysis
+    time_slots = ['Late Night (0-4)', 'Early Morning (5-8)', 'Morning (9-11)',
+                 'Afternoon (12-16)', 'Evening (17-20)', 'Night (21-23)']
+    slot_diff = []
+    slot_eng = []
+    slot_counts = []
+
+    for i, slot in enumerate(time_slots):
+        if i == 0:
+            slot_hours = [h for h in hours if 0 <= h <= 4]
+        elif i == 1:
+            slot_hours = [h for h in hours if 5 <= h <= 8]
+        elif i == 2:
+            slot_hours = [h for h in hours if 9 <= h <= 11]
+        elif i == 3:
+            slot_hours = [h for h in hours if 12 <= h <= 16]
+        elif i == 4:
+            slot_hours = [h for h in hours if 17 <= h <= 20]
+        else:
+            slot_hours = [h for h in hours if 21 <= h <= 23]
+
+        if slot_hours:
+            slot_diff_val = sum(eng_diff_pct[hours.index(h)] for h in slot_hours) / len(slot_hours)
+            slot_eng_val = sum(engagement_rates[hours.index(h)] for h in slot_hours) / len(slot_hours)
+            slot_count_val = sum(content_counts[hours.index(h)] for h in slot_hours)
+        else:
+            slot_diff_val = 0
+            slot_eng_val = 0
+            slot_count_val = 0
+
+        slot_diff.append(round(slot_diff_val, 1))
+        slot_eng.append(round(slot_eng_val, 2))
+        slot_counts.append(slot_count_val)
+
+    best_segment_idx = slot_diff.index(max(slot_diff)) if slot_diff else 0
+    best_segment = time_slots[best_segment_idx].split(' (')[0] if slot_diff else ""
+    segment_parts = []
+    for i in range(len(time_slots)):
+        if slot_counts[i] > 0:
+            segment_name = time_slots[i].split(' (')[0]
+            segment_parts.append(f"{segment_name} ({slot_diff[i]:+.1f}%, {slot_eng[i]:.2f}%)")
+    segment_str = ", ".join(segment_parts)
+    
+    # Build context with all fields (provide defaults for other dimensions)
+    context = {
+        "platform": platform,
+        "time_analysis": "Hourly",
+        "period_display": period_display,
+        "avg_eng_total": avg_eng_total,
+        "max_diff": max_diff,
+        # Hourly fields
+        "peak_hour": hours[peak_idx] if hours else -1,
+        "peak_diff": eng_diff_pct[peak_idx] if eng_diff_pct else 0,
+        "peak_eng": engagement_rates[peak_idx] if engagement_rates else 0,
+        "valley_hour": hours[valley_idx] if hours else -1,
+        "valley_diff": eng_diff_pct[valley_idx] if eng_diff_pct else 0,
+        "valley_eng": engagement_rates[valley_idx] if engagement_rates else 0,
+        "best_segment": best_segment,
+        "best_segment_diff": slot_diff[best_segment_idx] if slot_diff else 0,
+        "best_segment_eng": slot_eng[best_segment_idx] if slot_eng else 0,
+        "best_segment_count": slot_counts[best_segment_idx] if slot_counts else 0,
+        "segment_str": segment_str,
+        # Day Parts fields (defaults)
+        "top3_str": "N/A",
+        "best_period_name": "N/A",
+        "best_period_diff": 0,
+        "best_period_eng": 0,
+        "best_period_count": 0,
+        "worst_period_name": "N/A",
+        "worst_period_diff": 0,
+        "worst_period_eng": 0,
+        "worst_period_count": 0,
+        # Week fields (defaults)
+        "best_day_name": "N/A",
+        "best_day_diff": 0,
+        "best_day_eng": 0,
+        "best_day_count": 0,
+        "worst_day_name": "N/A",
+        "worst_day_diff": 0,
+        "worst_day_eng": 0,
+        "worst_day_count": 0,
+        "weekend_eng": 0,
+        "weekday_eng": 0,
+        "weekend_lift": 0
+    }
+    
+    err = validate_context_fields_by_db(conn, "publish_timing_analysis", context)
+    if err:
+        return {
+            "platform": platform,
+            "time_analysis": "Hourly",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": err
         }
+    
+    rendered = render_report_from_db(conn, "publish_timing_analysis", context)
+
     return {
         "platform": platform,
         "time_analysis": "Hourly",
@@ -1208,7 +1050,320 @@ def analyze_hourly_focused(cursor, platform, date_condition, period_display):
             "content_counts": content_counts,
             "peak_hour": hours[peak_idx] if hours else None,
             "valley_hour": hours[valley_idx] if hours else None
-        } if hours else None,
+        },
+        "error": ""
+    }
+
+
+def _process_dayparts_analysis(cursor, conn, platform, period_display, date_filter, params):
+    """Process day parts analysis"""
+    # Get SQL query from database
+    try:
+        sql = get_sql(conn, 'publish_timing_dayparts')
+        # Add date filter if needed
+        if date_filter:
+            sql = sql.replace('WHERE c.platform = ? AND c.publish_period IS NOT NULL',
+                            f'WHERE c.platform = ? AND c.publish_period IS NOT NULL{date_filter}')
+    except ValueError as e:
+        return {"error": f"SQL query not found: {e}"}
+    
+    try:
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+    except Error as e:
+        return {"error": f"Database query error: {e}"}
+    
+    if not rows:
+        return {
+            "platform": platform,
+            "time_analysis": "Day Parts",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": "No data available for the selected criteria."
+        }
+    
+    # Process data
+    periods = []
+    engagement_rates = []
+    content_counts = []
+    
+    for row in rows:
+        period, engagement, count = row
+        if period:
+            periods.append(period)
+            eng_pct = round((engagement * 100) if engagement else 0, 2)
+            engagement_rates.append(eng_pct)
+            content_counts.append(int(count or 0))
+    
+    if not engagement_rates:
+        return {
+            "platform": platform,
+            "time_analysis": "Day Parts",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": "No valid data found."
+        }
+    
+    # Calculate metrics
+    avg_eng_total = round(sum(engagement_rates) / len(engagement_rates), 2)
+    eng_diff_pct = [round((eng - avg_eng_total) / avg_eng_total * 100, 1) if avg_eng_total > 0 else 0 for eng in engagement_rates]
+    max_diff = max(abs(d) for d in eng_diff_pct)
+    
+    # Get top 3 and best/worst
+    sorted_indices = sorted(range(len(eng_diff_pct)), key=lambda i: eng_diff_pct[i], reverse=True)
+    top3_indices = sorted_indices[:3]
+    best_idx = sorted_indices[0]
+    worst_idx = sorted_indices[-1]
+    
+    top3_str = ", ".join([f"{periods[i]} ({eng_diff_pct[i]:+.1f}%)" for i in top3_indices])
+    best_period_name = periods[best_idx]
+    best_period_diff = eng_diff_pct[best_idx]
+    best_period_eng = engagement_rates[best_idx]
+    best_period_count = content_counts[best_idx]
+    worst_period_name = periods[worst_idx]
+    worst_period_diff = eng_diff_pct[worst_idx]
+    worst_period_eng = engagement_rates[worst_idx]
+    worst_period_count = content_counts[worst_idx]
+    
+    # Build context with all fields (provide defaults for other dimensions)
+    context = {
+        "platform": platform,
+        "time_analysis": "Day Parts",
+        "period_display": period_display,
+        "avg_eng_total": avg_eng_total,
+        "max_diff": max_diff,
+        # Day Parts fields
+        "top3_str": top3_str,
+        "best_period_name": best_period_name,
+        "best_period_diff": best_period_diff,
+        "best_period_eng": best_period_eng,
+        "best_period_count": best_period_count,
+        "worst_period_name": worst_period_name,
+        "worst_period_diff": worst_period_diff,
+        "worst_period_eng": worst_period_eng,
+        "worst_period_count": worst_period_count,
+        # Hourly fields (defaults)
+        "peak_hour": -1,
+        "peak_diff": 0,
+        "peak_eng": 0,
+        "valley_hour": -1,
+        "valley_diff": 0,
+        "valley_eng": 0,
+        "best_segment": "N/A",
+        "best_segment_diff": 0,
+        "best_segment_eng": 0,
+        "best_segment_count": 0,
+        "segment_str": "N/A",
+        # Week fields (defaults)
+        "best_day_name": "N/A",
+        "best_day_diff": 0,
+        "best_day_eng": 0,
+        "best_day_count": 0,
+        "worst_day_name": "N/A",
+        "worst_day_diff": 0,
+        "worst_day_eng": 0,
+        "worst_day_count": 0,
+        "weekend_eng": 0,
+        "weekday_eng": 0,
+        "weekend_lift": 0
+    }
+    
+    err = validate_context_fields_by_db(conn, "publish_timing_analysis", context)
+    if err:
+        return {
+            "platform": platform,
+            "time_analysis": "Day Parts",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": err
+        }
+    
+    rendered = render_report_from_db(conn, "publish_timing_analysis", context)
+    
+    return {
+        "platform": platform,
+        "time_analysis": "Day Parts",
+        "period_display": period_display,
+        "report": rendered["text"],
+        "report_markdown": rendered["markdown"],
+        "report_html": rendered["html"],
+        "data": {
+            "periods": periods,
+            "engagement_rates": engagement_rates,
+            "eng_diff_pct": eng_diff_pct,
+            "content_counts": content_counts
+        },
+        "error": ""
+    }
+
+
+def _process_week_analysis(cursor, conn, platform, period_display, date_filter, params):
+    """Process week analysis"""
+    # Get SQL query from database
+    try:
+        sql = get_sql(conn, 'publish_timing_week')
+        # Add date filter if needed
+        if date_filter:
+            sql = sql.replace('WHERE c.platform = ? AND c.publish_dayofweek IS NOT NULL',
+                            f'WHERE c.platform = ? AND c.publish_dayofweek IS NOT NULL{date_filter}')
+    except ValueError as e:
+        return {"error": f"SQL query not found: {e}"}
+    
+    try:
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+    except Error as e:
+        return {"error": f"Database query error: {e}"}
+    
+    if not rows:
+        return {
+            "platform": platform,
+            "time_analysis": "Week Analysis",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": "No data available for the selected criteria."
+        }
+    
+    # Process data
+    days = []
+    engagement_rates = []
+    content_counts = []
+    
+    for row in rows:
+        day, engagement, count = row
+        if day:
+            days.append(day)
+            eng_pct = round((engagement * 100) if engagement else 0, 2)
+            engagement_rates.append(eng_pct)
+            content_counts.append(int(count or 0))
+    
+    if not engagement_rates:
+        return {
+            "platform": platform,
+            "time_analysis": "Week Analysis",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": "No valid data found."
+        }
+    
+    # Calculate metrics
+    avg_eng_total = round(sum(engagement_rates) / len(engagement_rates), 2)
+    eng_diff_pct = [round((eng - avg_eng_total) / avg_eng_total * 100, 1) if avg_eng_total > 0 else 0 for eng in engagement_rates]
+    max_diff = max(abs(d) for d in eng_diff_pct)
+    
+    # Get top 3 and best/worst
+    sorted_indices = sorted(range(len(eng_diff_pct)), key=lambda i: eng_diff_pct[i], reverse=True)
+    top3_indices = sorted_indices[:3]
+    best_idx = sorted_indices[0]
+    worst_idx = sorted_indices[-1]
+    
+    top3_str = ", ".join([f"{days[i]} ({eng_diff_pct[i]:+.1f}%)" for i in top3_indices])
+    best_day_name = days[best_idx]
+    best_day_diff = eng_diff_pct[best_idx]
+    best_day_eng = engagement_rates[best_idx]
+    best_day_count = content_counts[best_idx]
+    worst_day_name = days[worst_idx]
+    worst_day_diff = eng_diff_pct[worst_idx]
+    worst_day_eng = engagement_rates[worst_idx]
+    worst_day_count = content_counts[worst_idx]
+    
+    # Calculate weekend vs weekday
+    weekend_days = ['Saturday', 'Sunday']
+    weekday_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    
+    weekend_engs = [engagement_rates[i] for i, day in enumerate(days) if day in weekend_days]
+    weekday_engs = [engagement_rates[i] for i, day in enumerate(days) if day in weekday_days]
+    
+    weekend_eng = round(sum(weekend_engs) / len(weekend_engs), 2) if weekend_engs else 0
+    weekday_eng = round(sum(weekday_engs) / len(weekday_engs), 2) if weekday_engs else 0
+    weekend_lift = round((weekend_eng - weekday_eng) / weekday_eng * 100, 1) if weekday_eng > 0 else 0
+    
+    # Build context with all fields (provide defaults for other dimensions)
+    context = {
+        "platform": platform,
+        "time_analysis": "Week Analysis",
+        "period_display": period_display,
+        "avg_eng_total": avg_eng_total,
+        "max_diff": max_diff,
+        # Week fields
+        "top3_str": top3_str,
+        "best_day_name": best_day_name,
+        "best_day_diff": best_day_diff,
+        "best_day_eng": best_day_eng,
+        "best_day_count": best_day_count,
+        "worst_day_name": worst_day_name,
+        "worst_day_diff": worst_day_diff,
+        "worst_day_eng": worst_day_eng,
+        "worst_day_count": worst_day_count,
+        "weekend_eng": weekend_eng,
+        "weekday_eng": weekday_eng,
+        "weekend_lift": weekend_lift,
+        # Hourly fields (defaults)
+        "peak_hour": -1,
+        "peak_diff": 0,
+        "peak_eng": 0,
+        "valley_hour": -1,
+        "valley_diff": 0,
+        "valley_eng": 0,
+        "best_segment": "N/A",
+        "best_segment_diff": 0,
+        "best_segment_eng": 0,
+        "best_segment_count": 0,
+        "segment_str": "N/A",
+        # Day Parts fields (defaults)
+        "best_period_name": "N/A",
+        "best_period_diff": 0,
+        "best_period_eng": 0,
+        "best_period_count": 0,
+        "worst_period_name": "N/A",
+        "worst_period_diff": 0,
+        "worst_period_eng": 0,
+        "worst_period_count": 0
+    }
+    
+    err = validate_context_fields_by_db(conn, "publish_timing_analysis", context)
+    if err:
+        return {
+            "platform": platform,
+            "time_analysis": "Week Analysis",
+            "period_display": period_display,
+            "report": "",
+            "report_markdown": None,
+            "report_html": None,
+            "data": None,
+            "error": err
+        }
+    
+    rendered = render_report_from_db(conn, "publish_timing_analysis", context)
+    
+    return {
+        "platform": platform,
+        "time_analysis": "Week Analysis",
+        "period_display": period_display,
+        "report": rendered["text"],
+        "report_markdown": rendered["markdown"],
+        "report_html": rendered["html"],
+        "data": {
+            "days": days,
+            "engagement_rates": engagement_rates,
+            "eng_diff_pct": eng_diff_pct,
+            "content_counts": content_counts
+        },
         "error": ""
     }
 
@@ -1231,6 +1386,14 @@ def get_countries():
     """API: Get all countries"""
     conn = create_connection()
     data = list_all_countries(conn)
+    conn.close()
+    return jsonify(data)
+
+@app.route('/api/year-months', methods=['GET'])
+def get_year_months():
+    """API: Get all available year-month combinations"""
+    conn = create_connection()
+    data = list_all_year_months(conn)
     conn.close()
     return jsonify(data)
 
@@ -1287,20 +1450,51 @@ def trend_report():
 
 @app.route('/api/publish-timing-analysis', methods=['POST'])
 def publish_timing_analysis():
-    """API: Publish timing analysis (new function)"""
+    """
+    API: Publish timing analysis
+    
+    Request body:
+    {
+        "platform": "TikTok" or "YouTube",
+        "time_analysis": "Hourly", "Day Parts", or "Week Analysis" (optional, default: "Hourly"),
+        "period": "All Time" or "Custom" (optional, default: "All Time"),
+        "start_month": "YYYY-MM" (required if period="Custom"),
+        "end_month": "YYYY-MM" (required if period="Custom")
+    }
+    """
     data = request.json
     platform = data.get('platform')
-    time_analysis = data.get('time_analysis')
+    time_analysis = data.get('time_analysis', 'Hourly')
+    period = data.get('period', 'All Time')
     start_month = data.get('start_month')
     end_month = data.get('end_month')
     
-    if not all([platform, time_analysis, start_month, end_month]):
-        return jsonify({"error": "Please provide platform, time analysis type, start month and end month"})
+    # Validate required parameters
+    if not all([platform]):
+        return jsonify({"error": "Please provide platform"})
+    
+    # Validate time_analysis
+    if time_analysis not in ['Hourly', 'Day Parts', 'Week Analysis']:
+        return jsonify({"error": "Invalid time_analysis. Must be 'Hourly', 'Day Parts', or 'Week Analysis'"})
+    
+    # Validate custom period parameters
+    if period == 'Custom':
+        if not all([start_month, end_month]):
+            return jsonify({"error": "For custom period, please provide both start_month and end_month in format 'YYYY-MM'"})
+        # Validate date format
+        try:
+            from datetime import datetime
+            datetime.strptime(start_month, '%Y-%m')
+            datetime.strptime(end_month, '%Y-%m')
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Please use 'YYYY-MM' format (e.g., '2025-01')"})
     
     conn = create_connection()
-    result = generate_publish_timing_analysis(conn, platform, time_analysis, start_month, end_month)
-    conn.close()
-    return jsonify(result)
+    try:
+        result = generate_publish_timing_analysis(conn, platform, time_analysis, period, start_month, end_month)
+        return jsonify(result)
+    finally:
+        conn.close()
 
 # ====================== User Database and Login ======================
 USER_DB_PATH = 'user.db'
@@ -1526,8 +1720,8 @@ def api_creator_performance():
     data = request.json
     platform = data.get('platform')
     creator_scope = data.get('creator_scope', 'All (all tiers)')
-    start_month = data.get('start_month', '2025-01')
-    end_month = data.get('end_month', '2025-08')
+    start_month = data.get('start_month')
+    end_month = data.get('end_month')
     conn = create_connection()
     try:
         result = generate_creator_performance(conn, platform, creator_scope, start_month, end_month)

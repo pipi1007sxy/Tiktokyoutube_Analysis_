@@ -4,6 +4,7 @@
 window.onload = function() {
     loadPlatforms();
     loadCountries();
+    loadYearMonths();
     initTabs();
     addLoadingStates();
 };
@@ -375,6 +376,30 @@ function loadCountries() {
         });
 }
 
+function loadYearMonths() {
+    fetch('/api/year-months')
+        .then(res => res.json())
+        .then(data => {
+            const listEl = document.getElementById('year-months-list');
+            if (data.length === 0) {
+                listEl.innerHTML = '<div class="error-message">No year/month data available</div>';
+                return;
+            }
+            
+            listEl.innerHTML = data.map(ym => 
+                `<div style="padding: 20px; background: var(--bg-card); border-radius: 16px; box-shadow: var(--shadow-soft); border: 1px solid rgba(0, 0, 0, 0.04); transition: all 0.3s ease;">
+                    <strong style="font-size: 1rem; color: var(--text-primary);">${ym.display}</strong>
+                    <span style="color: var(--text-secondary); font-size: 0.9rem; margin-left: 10px;">(${ym.year_month})</span>
+                </div>`
+            ).join('');
+        })
+        .catch(error => {
+            console.error('Failed to load year/month list:', error);
+            document.getElementById('year-months-list').innerHTML = 
+                '<div class="error-message">Failed to load, please refresh the page and try again</div>';
+        });
+}
+
 function renderDominanceComparisonBar(compData, countryName) {
     const el = document.getElementById('pd-comparison-bar');
     if (!el) return;
@@ -516,180 +541,6 @@ function renderDominanceComparisonBar(compData, countryName) {
     window.addEventListener('resize', () => chart.resize());
 }
 
-function renderDominanceRadar(elId, radarData) {
-    
-    // 分离数据：Total Views 和其他指标
-    const otherMetrics = [];
-    const tiktokOther = [];
-    const youtubeOther = [];
-    let tiktokViews = null;
-    let youtubeViews = null;
-    
-    metrics.forEach((metric, idx) => {
-        if (idx === viewsIndex && hasViews) {
-            tiktokViews = tiktokData[idx];
-            youtubeViews = youtubeData[idx];
-        } else {
-            otherMetrics.push(metric);
-            tiktokOther.push(tiktokData[idx]);
-            youtubeOther.push(youtubeData[idx]);
-        }
-    });
-    
-    // 构建 series 配置
-    const series = [];
-    
-    // 添加 Total Views（使用左侧 y 轴）
-    if (hasViews) {
-        series.push({
-            name: 'TikTok (Views)',
-            type: 'bar',
-            yAxisIndex: 0,
-            data: Array(metrics.length).fill(null).map((_, idx) => idx === viewsIndex ? tiktokViews : null),
-            itemStyle: { color: '#5470c6' },
-            label: { 
-                show: true, 
-                position: 'top', 
-                fontSize: 9,
-                formatter: (params) => {
-                    if (params.value != null) {
-                        const val = params.value;
-                        if (val >= 1000000000) return (val / 1000000000).toFixed(2) + 'B';
-                        if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
-                        if (val >= 1000) return (val / 1000).toFixed(1) + 'K';
-                        return val.toLocaleString();
-                    }
-                    return '';
-                }
-            }
-        });
-        series.push({
-            name: 'YouTube (Views)',
-            type: 'bar',
-            yAxisIndex: 0,
-            data: Array(metrics.length).fill(null).map((_, idx) => idx === viewsIndex ? youtubeViews : null),
-            itemStyle: { color: '#ee6666' },
-            label: { 
-                show: true, 
-                position: 'top', 
-                fontSize: 9,
-                formatter: (params) => {
-                    if (params.value != null) {
-                        const val = params.value;
-                        if (val >= 1000000000) return (val / 1000000000).toFixed(2) + 'B';
-                        if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
-                        if (val >= 1000) return (val / 1000).toFixed(1) + 'K';
-                        return val.toLocaleString();
-                    }
-                    return '';
-                }
-            }
-        });
-    }
-    
-    // 添加其他指标（使用右侧 y 轴）
-    otherMetrics.forEach((metric, idx) => {
-        const metricIndex = metrics.indexOf(metric);
-        series.push({
-            name: `TikTok (${metric})`,
-            type: 'bar',
-            yAxisIndex: 1,
-            data: Array(metrics.length).fill(null).map((_, idx) => idx === metricIndex ? tiktokOther[idx] : null),
-            itemStyle: { color: '#91cc75' },
-            label: { show: true, position: 'top', fontSize: 9 }
-        });
-        series.push({
-            name: `YouTube (${metric})`,
-            type: 'bar',
-            yAxisIndex: 1,
-            data: Array(metrics.length).fill(null).map((_, idx) => idx === metricIndex ? youtubeOther[idx] : null),
-            itemStyle: { color: '#fac858' },
-            label: { show: true, position: 'top', fontSize: 9 }
-        });
-    });
-    
-    const option = {
-        title: { text: `Platform Metrics Comparison - ${countryName}`, left: 'center' },
-        tooltip: { 
-            trigger: 'axis', 
-            axisPointer: { type: 'shadow' },
-            formatter: (params) => {
-                let result = params[0].axisValue + '<br/>';
-                params.forEach(param => {
-                    if (param.value != null) {
-                        let value = param.value;
-                        if (param.seriesName.includes('Views')) {
-                            if (value >= 1000000000) value = (value / 1000000000).toFixed(2) + 'B';
-                            else if (value >= 1000000) value = (value / 1000000).toFixed(1) + 'M';
-                            else if (value >= 1000) value = (value / 1000).toFixed(1) + 'K';
-                            else value = value.toLocaleString();
-                        }
-                        result += `${param.marker}${param.seriesName}: ${value}<br/>`;
-                    }
-                });
-                return result;
-            }
-        },
-        legend: { data: series.map(s => s.name), top: 30 },
-        xAxis: {
-            type: 'category',
-            data: metrics,
-            axisLabel: { interval: 0, rotate: 20, fontSize: 10 }
-        },
-        yAxis: [
-            {
-                type: 'value',
-                name: 'Total Views',
-                position: 'left',
-                axisLabel: {
-                    formatter: (value) => {
-                        if (value >= 1000000000) return (value / 1000000000).toFixed(1) + 'B';
-                        if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
-                        if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
-                        return value;
-                    }
-                }
-            },
-            {
-                type: 'value',
-                name: 'Other Metrics',
-                position: 'right',
-                axisLabel: {
-                    formatter: (value) => {
-                        if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
-                        return value.toFixed(1);
-                    }
-                }
-            }
-        ],
-        grid: { left: '10%', right: '12%', bottom: '15%', top: '25%' },
-        series: series
-    };
-    chart.setOption(option);
-    window.addEventListener('resize', () => chart.resize());
-}
-
-function renderDominanceRadar(elId, radarData) {
-    const el = document.getElementById(elId);
-    if (!el) return;
-    const chart = echarts.init(el);
-    const option = {
-        title: { text: 'Quantity & Quality Radar', left: 'center' },
-        legend: { data: ['TikTok','YouTube'], top: 28 },
-        radar: {
-            indicator: radarData.indicators || []
-        },
-        series: [{
-            type: 'radar',
-            data: [
-                { value: radarData.tikTok || [], name: 'TikTok' },
-                { value: radarData.youTube || [], name: 'YouTube' }
-            ]
-        }]
-    };
-    chart.setOption(option);
-    window.addEventListener('resize', () => chart.resize());
-}
 // Render Global Analysis ECharts Pie Chart
 function renderGlobalEchart(labels, values, extraInfo) {
     const chartEl = document.getElementById('global-echart');

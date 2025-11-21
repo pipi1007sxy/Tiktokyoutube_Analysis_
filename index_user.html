@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Short Video Data Analysis Platform | TikTok & YouTube</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -18,11 +20,17 @@
             </div>
             
             <nav class="nav-menu">
-                <button class="nav-btn active" data-tab="platforms">
+                <button class="nav-btn active" data-tab="home">
+                    <span class="nav-text">Home</span>
+                </button>
+                <button class="nav-btn" data-tab="platforms">
                     <span class="nav-text">Platform List</span>
                 </button>
                 <button class="nav-btn" data-tab="countries">
                     <span class="nav-text">Countries & Regions</span>
+                </button>
+                <button class="nav-btn" data-tab="year-months">
+                    <span class="nav-text">Year & Months</span>
                 </button>
                 <button class="nav-btn" data-tab="global">
                     <span class="nav-text">Global Analysis</span>
@@ -51,8 +59,34 @@
         <!-- Main Content Area -->
         <main class="content-wrapper">
             <div class="content-container">
+                <!-- 0. Dashboard Home -->
+                <div id="home" class="content-section active">
+                    <div class="dashboard-hero">
+                        <div class="hero-content">
+                            <h1 class="hero-title">Automated analysis system for YouTube&TikTok shortvideo trends</h1>
+                            <h2 class="hero-subtitle">Unlock youTube &TikTok Short VideoTrends with one Click，Make Your Creation and Promotion Smarter and More Efficient</h2>
+                            <button class="action-btn" onclick="document.querySelector('[data-tab=\'global\']').click()">
+                                <span>Start Analysis</span>
+                            </button>
+                        </div>
+                        <div class="hero-visual">
+                            <div class="logos-container">
+                                <div class="circle-deco"></div>
+                                <!-- YouTube Card -->
+                                <div class="logo-3d youtube-card">
+                                    <div class="play-icon"></div>
+                                </div>
+                                <!-- TikTok Card -->
+                                <div class="logo-3d tiktok-card">
+                                    <i class="fa-brands fa-tiktok tiktok-note"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 1. Platform List -->
-                <div id="platforms" class="content-section active">
+                <div id="platforms" class="content-section">
                     <div class="section-header">
                         <h2>Supported Platforms</h2>
                         <p class="section-description">View all available short video platforms in the system</p>
@@ -67,6 +101,15 @@
                         <p class="section-description">View all supported countries and regions information</p>
                     </div>
                     <div id="countries-list" class="result-grid"></div>
+                </div>
+
+                <!-- Year & Months List -->
+                <div id="year-months" class="content-section">
+                    <div class="section-header">
+                        <h2>Available Year & Months</h2>
+                        <p class="section-description">View all available year and month combinations in the database</p>
+                    </div>
+                    <div id="year-months-list" class="result-grid"></div>
                 </div>
 
                 <!-- 3. Global Data Analysis -->
