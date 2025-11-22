@@ -166,21 +166,8 @@ def render_report_from_db(conn, slug, context):
 
     base_text = _render_template_text(content, context)
     
-    # 处理剩余的 {{...}} 标记（Jinja2渲染后剩余的），转换为 <span class="highlight-data">...</span>
-    def convert_highlight_markers(text):
-        """将模板中剩余的 {{...}} 标记转换为 <span class="highlight-data">...</span>"""
-        # 匹配 {{...}} 格式，提取中间的内容并转换为span标签
-        # 这个正则在Jinja2渲染后运行，所以匹配到的都是需要加粗的标记
-        pattern = r'\{\{([^}]+)\}\}'
-        def replace_func(match):
-            inner_text = match.group(1).strip()
-            if inner_text:  # 只处理非空内容
-                return f'<span class="highlight-data">{inner_text}</span>'
-            return match.group(0)  # 空内容保持原样
-        return re.sub(pattern, replace_func, text)
-    
-    # 对所有格式都应用标记转换
-    processed_text = convert_highlight_markers(base_text)
+    # 直接使用渲染后的文本，不再处理{{}}标记（现在直接在模板中使用HTML标签）
+    processed_text = base_text
     
     # 统一处理函数：将所有 <strong> 标签转换为 <span class="highlight-data">（与Global模块一致）
     def convert_strong_to_span(html_text):
@@ -203,7 +190,8 @@ def render_report_from_db(conn, slug, context):
         md_out = base_text  # markdown保持原始文本
         if markdown:
             # 先转换 markdown（将 **text** 转换为 <strong>text</strong>）
-            temp_html = markdown.markdown(processed_text)
+            # 使用extensions=['nl2br']来保留HTML标签，不转义
+            temp_html = markdown.markdown(processed_text, extensions=['nl2br'])
             # 然后将所有 <strong> 标签转换为 <span class="highlight-data">
             html_out = convert_strong_to_span(temp_html)
         else:
@@ -229,7 +217,8 @@ def render_report_from_db(conn, slug, context):
         md_out = base_text
         if markdown:
             # 先转换 markdown（将 **text** 转换为 <strong>text</strong>）
-            temp_html = markdown.markdown(processed_text)
+            # 使用extensions=['nl2br']来保留HTML标签，不转义
+            temp_html = markdown.markdown(processed_text, extensions=['nl2br'])
             # 然后将所有 <strong> 标签转换为 <span class="highlight-data">
             html_out = convert_strong_to_span(temp_html)
         else:
@@ -338,22 +327,28 @@ def generate_global_analysis(conn, platform, year_month):
         category_names = [row[0] for row in category_results]
         category_views = [nz(row[1], 0) for row in category_results]
         
-        # report context
-        country_list = ", ".join([f"{name} ({views:,} views)" for name, views in zip(country_names, country_views)])
+        # report context - pass raw data only, no formatted text
         top_country = country_names[0] if country_names else "N/A"
         top_country_views = country_views[0] if country_views else 0
         top_country_pct = (top_country_views / total_views * 100) if total_views and total_views > 0 else 0
+        
+        # Generate country list text (only data, no full sentence)
+        country_list_text = ""
+        if country_names:
+            country_parts = [f"{name} ({views:,} views)" for name, views in zip(country_names, country_views)]
+            country_list_text = ", ".join(country_parts)
+        
         context = {
             "platform": platform,
             "year_month": year_month,
-            "country_list": country_list,
+            "country_list_text": country_list_text,  # Only data: "Korea (17,051,505 views), UAE (...)"
             "total_views": total_views,
             "total_content": total_content,
             "avg_engagement": avg_engagement,
             "top_country": top_country,
             "top_country_views": top_country_views,
             "top_country_pct": top_country_pct,
-            "top_hashtag": top_hashtag
+            "top_hashtag": top_hashtag  # Only hashtag value, template has the sentence structure
         }
         err = validate_context_fields_by_db(conn, "global_analysis", context)
         if err:
@@ -380,7 +375,7 @@ def generate_global_analysis(conn, platform, year_month):
                 "avg_engagement": avg_engagement,
                 "top_hashtag": top_hashtag,
                 "top_country": top_country,
-                "title": f"{year_month} {platform} Country Distribution"
+                "title": year_month + " " + platform + " Country Distribution"  # Simple concatenation for title
             },
             "report": rendered["text"],
             "report_markdown": rendered["markdown"],
@@ -410,14 +405,16 @@ def generate_hashtag_report(conn, platform, country_code, min_views):
                 return {"error": f"No hashtags found on {platform} in {country_code} with total views exceeding {min_views}"}
 
             hashtag_count = len(results)
-            high_view_hashtags = ", ".join([f"{h} ({v} views)" for h, v in results])
+            # Generate hashtag list text in Python
+            hashtag_parts = [f"{h} ({v:,} views)" for h, v in results[:10]]
+            hashtag_list_text = ", ".join(hashtag_parts)
 
             context = {
                 "platform": platform,
                 "country_code": country_code,
                 "hashtag_count": hashtag_count,
                 "min_views": min_views,
-                "high_view_hashtags": high_view_hashtags
+                "hashtag_list_text": hashtag_list_text  # Pre-generated text in Python
             }
             err = validate_context_fields_by_db(conn, "hashtag_report", context)
             if err:
@@ -468,17 +465,20 @@ def generate_trend_report(conn, platform, country_code, start_date, end_date):
             if not results:
                 return {"error": f"No trend data found on {platform} in {country_code} between {start_date} and {end_date}"}
 
-            trend_type_views = ", ".join([f"{ttype}: {nz(views, 0):,} views" for ttype, views in results])
-            top_trend_type = results[0][0]
+            # Generate trend list text (only data, template has sentence structure)
+            trend_parts = [f"{ttype}: {nz(views, 0):,} views" for ttype, views in results]
+            trend_list_text = ", ".join(trend_parts)
+            top_trend_type = results[0][0] if results else "N/A"
+            trend_count = len(results)
 
             context = {
                 "platform": platform,
                 "country_code": country_code,
                 "start_date": start_date,
                 "end_date": end_date,
-                "top_trend_type": top_trend_type,
-                "trend_list": trend_type_views,
-                "insight": "Leading trend types dominate; deepen content strategy around the top category."
+                "top_trend_type": top_trend_type,  # Only data
+                "trend_list_text": trend_list_text,  # Only data: "Viral: 1000000 views, ..."
+                "trend_count": trend_count  # Count for template if logic
             }
             err = validate_context_fields_by_db(conn, "trend_report", context)
             if err:
@@ -558,48 +558,39 @@ def generate_creator_performance(conn, platform, creator_scope, start_month, end
             monthly_rows = cursor.execute(sql_monthly, (platform, target_tiers[0], start_month, end_month)).fetchall()
             monthly_data = [{"month": r[0], "views": int(r[1] or 0), "count": int(r[2] or 0)} for r in monthly_rows]
         
-        if total_views == 0 or not rows:
-            context = {
-                "platform": platform,
-                "creator_scope": creator_scope,
-                "time_frame": time_frame,
-                "total_views": total_views,
-                "tier_paragraph": "No valid tier data is available for the selected scope and time period."
-            }
-        else:
-            tiers = []
-            tier_views = []
-            tier_pct = []
-            tier_counts = []
-            tier_avg_views = []
-            tier_details = []
+        # Build tier details as raw data list (only data, template has sentence structure)
+        tiers = []
+        tier_views = []
+        tier_pct = []
+        tier_counts = []
+        tier_avg_views = []
+        tier_details_data = []
+        
+        if total_views > 0 and rows:
             for tier, views, content_count in rows:
                 pct = round((views / total_views) * 100, 1) if total_views > 0 else 0
                 avg_views = round(views / content_count) if content_count > 0 else 0
-                detail = (
-                    f"the {tier} tier contributed **{views:,}** views (accounting for **{pct}%** of the total), "
-                    f"published **{content_count}** pieces of content, and achieved an average of **{avg_views:,}** views per content"
-                )
-                tier_details.append(detail)
+                tier_details_data.append({
+                    "tier": tier,
+                    "views": views,
+                    "pct": pct,
+                    "content_count": content_count,
+                    "avg_views": avg_views
+                })
                 tiers.append(tier)
                 tier_views.append(int(views or 0))
                 tier_pct.append(float(pct))
                 tier_counts.append(int(content_count or 0))
                 tier_avg_views.append(int(avg_views))
-            if len(tier_details) == 1:
-                tier_paragraph = f"Among the analyzed creator tiers, {tier_details[0]}."
-            elif len(tier_details) == 2:
-                tier_paragraph = f"Among the analyzed creator tiers, {tier_details[0]}, and {tier_details[1]}."
-            else:
-                tier_str = ", ".join(tier_details[:-1]) + f", and {tier_details[-1]}"
-                tier_paragraph = f"Among the analyzed creator tiers, {tier_str}."
-            context = {
-                "platform": platform,
-                "creator_scope": creator_scope,
-                "time_frame": time_frame,
-                "total_views": total_views,
-                "tier_paragraph": tier_paragraph
-            }
+        
+        context = {
+            "platform": platform,
+            "creator_scope": creator_scope,
+            "time_frame": time_frame,
+            "total_views": total_views,
+            "tier_details": tier_details_data,  # Raw data list, template has sentence structure
+            "tier_count": len(tier_details_data)  # Count for template logic
+        }
         err = validate_context_fields_by_db(conn, "creator_performance", context)
         if err:
             return {"error": err}
@@ -636,18 +627,22 @@ def generate_region_ad_recommendation(conn, region):
             return data[:3] if data else []
         top3_tiktok = top3(tiktok)
         top3_youtube = top3(youtube)
-        category_tiktok = top3_tiktok[0][1] if top3_tiktok else "No data"
+        # Extract raw data
+        category_tiktok = top3_tiktok[0][1] if top3_tiktok else ""
         engagement_tiktok = top3_tiktok[0][2] if top3_tiktok else 0
         category2_tiktok = top3_tiktok[1][1] if len(top3_tiktok) >= 2 else ""
         category3_tiktok = top3_tiktok[2][1] if len(top3_tiktok) >= 3 else ""
-        category_youtube = top3_youtube[0][1] if top3_youtube else "No data"
+        category_youtube = top3_youtube[0][1] if top3_youtube else ""
         engagement_youtube = top3_youtube[0][2] if top3_youtube else 0
         category2_youtube = top3_youtube[1][1] if len(top3_youtube) >= 2 else ""
         category3_youtube = top3_youtube[2][1] if len(top3_youtube) >= 3 else ""
+        
+        # Determine best platform (only data, template has sentence structure)
         best_platform = ""
         best_category = ""
         best_engagement = 0
         comparison_engagement = 0
+        
         if top3_tiktok and top3_youtube:
             if engagement_tiktok > engagement_youtube:
                 best_platform = "TikTok"
@@ -659,28 +654,32 @@ def generate_region_ad_recommendation(conn, region):
                 best_category = category_youtube
                 best_engagement = engagement_youtube
                 comparison_engagement = engagement_tiktok
-        tiktok_followed_by = ""
-        youtube_followed_by = ""
+        
+        # Generate "followed by" text (includes "followed by" structure)
+        tiktok_followed_by_text = ""
         if category2_tiktok and category3_tiktok:
-            tiktok_followed_by = f", followed by {category2_tiktok} and {category3_tiktok}"
+            tiktok_followed_by_text = f", followed by {category2_tiktok} and {category3_tiktok}"
         elif category2_tiktok:
-            tiktok_followed_by = f", followed by {category2_tiktok}"
+            tiktok_followed_by_text = f", followed by {category2_tiktok}"
+        
+        youtube_followed_by_text = ""
         if category2_youtube and category3_youtube:
-            youtube_followed_by = f", followed by {category2_youtube} and {category3_youtube}"
+            youtube_followed_by_text = f", followed by {category2_youtube} and {category3_youtube}"
         elif category2_youtube:
-            youtube_followed_by = f", followed by {category2_youtube}"
+            youtube_followed_by_text = f", followed by {category2_youtube}"
+        
         context = {
             "region": region,
             "category_tiktok": category_tiktok,
             "engagement_tiktok": engagement_tiktok,
-            "tiktok_followed_by": tiktok_followed_by,
+            "tiktok_followed_by_text": tiktok_followed_by_text,  # Includes "followed by" but template has full sentence
             "category_youtube": category_youtube,
             "engagement_youtube": engagement_youtube,
-            "youtube_followed_by": youtube_followed_by,
-            "best_platform": best_platform,
-            "best_category": best_category,
-            "best_engagement": best_engagement,
-            "comparison_engagement": comparison_engagement
+            "youtube_followed_by_text": youtube_followed_by_text,  # Includes "followed by" but template has full sentence
+            "best_platform": best_platform,  # Only data, template has full recommendation sentence
+            "best_category": best_category,  # Only data
+            "best_engagement": best_engagement,  # Only data
+            "comparison_engagement": comparison_engagement  # Only data
         }
         err = validate_context_fields_by_db(conn, "region_ad_recommendation", context)
         if err:
@@ -970,54 +969,33 @@ def _process_hourly_analysis(cursor, conn, platform, period_display, date_filter
 
     best_segment_idx = slot_diff.index(max(slot_diff)) if slot_diff else 0
     best_segment = time_slots[best_segment_idx].split(' (')[0] if slot_diff else ""
-    segment_parts = []
+    
+    # Prepare segment data for template
+    segment_data = []
     for i in range(len(time_slots)):
         if slot_counts[i] > 0:
             segment_name = time_slots[i].split(' (')[0]
-            segment_parts.append(f"{segment_name} ({slot_diff[i]:+.1f}%, {slot_eng[i]:.2f}%)")
-    segment_str = ", ".join(segment_parts)
+            segment_data.append({
+                "name": segment_name,
+                "diff": slot_diff[i],
+                "eng": slot_eng[i]
+            })
     
-    # Build context with all fields (provide defaults for other dimensions)
+    # Pass raw data to template instead of pre-generated text
     context = {
         "platform": platform,
         "time_analysis": "Hourly",
         "period_display": period_display,
         "avg_eng_total": avg_eng_total,
-        "max_diff": max_diff,
-        # Hourly fields
-        "peak_hour": hours[peak_idx] if hours else -1,
-        "peak_diff": eng_diff_pct[peak_idx] if eng_diff_pct else 0,
-        "peak_eng": engagement_rates[peak_idx] if engagement_rates else 0,
-        "valley_hour": hours[valley_idx] if hours else -1,
-        "valley_diff": eng_diff_pct[valley_idx] if eng_diff_pct else 0,
-        "valley_eng": engagement_rates[valley_idx] if engagement_rates else 0,
+        "peak_hour": hours[peak_idx] if hours else None,
+        "peak_eng_rate": engagement_rates[peak_idx] if engagement_rates else 0,
+        "peak_diff_pct": eng_diff_pct[peak_idx] if eng_diff_pct else 0,
+        "valley_hour": hours[valley_idx] if hours else None,
+        "valley_eng_rate": engagement_rates[valley_idx] if engagement_rates else 0,
+        "valley_diff_pct": eng_diff_pct[valley_idx] if eng_diff_pct else 0,
         "best_segment": best_segment,
         "best_segment_diff": slot_diff[best_segment_idx] if slot_diff else 0,
-        "best_segment_eng": slot_eng[best_segment_idx] if slot_eng else 0,
-        "best_segment_count": slot_counts[best_segment_idx] if slot_counts else 0,
-        "segment_str": segment_str,
-        # Day Parts fields (defaults)
-        "top3_str": "N/A",
-        "best_period_name": "N/A",
-        "best_period_diff": 0,
-        "best_period_eng": 0,
-        "best_period_count": 0,
-        "worst_period_name": "N/A",
-        "worst_period_diff": 0,
-        "worst_period_eng": 0,
-        "worst_period_count": 0,
-        # Week fields (defaults)
-        "best_day_name": "N/A",
-        "best_day_diff": 0,
-        "best_day_eng": 0,
-        "best_day_count": 0,
-        "worst_day_name": "N/A",
-        "worst_day_diff": 0,
-        "worst_day_eng": 0,
-        "worst_day_count": 0,
-        "weekend_eng": 0,
-        "weekday_eng": 0,
-        "weekend_lift": 0
+        "segment_data": segment_data
     }
     
     err = validate_context_fields_by_db(conn, "publish_timing_analysis", context)
@@ -1121,7 +1099,6 @@ def _process_dayparts_analysis(cursor, conn, platform, period_display, date_filt
     best_idx = sorted_indices[0]
     worst_idx = sorted_indices[-1]
     
-    top3_str = ", ".join([f"{periods[i]} ({eng_diff_pct[i]:+.1f}%)" for i in top3_indices])
     best_period_name = periods[best_idx]
     best_period_diff = eng_diff_pct[best_idx]
     best_period_eng = engagement_rates[best_idx]
@@ -1131,47 +1108,24 @@ def _process_dayparts_analysis(cursor, conn, platform, period_display, date_filt
     worst_period_eng = engagement_rates[worst_idx]
     worst_period_count = content_counts[worst_idx]
     
-    # Build context with all fields (provide defaults for other dimensions)
+    # Prepare top3 periods data for template
+    top3_periods = [{"name": periods[i], "diff": eng_diff_pct[i]} for i in top3_indices]
+    
+    # Pass raw data to template instead of pre-generated text
     context = {
         "platform": platform,
         "time_analysis": "Day Parts",
         "period_display": period_display,
         "avg_eng_total": avg_eng_total,
-        "max_diff": max_diff,
-        # Day Parts fields
-        "top3_str": top3_str,
         "best_period_name": best_period_name,
-        "best_period_diff": best_period_diff,
         "best_period_eng": best_period_eng,
+        "best_period_diff": best_period_diff,
         "best_period_count": best_period_count,
         "worst_period_name": worst_period_name,
-        "worst_period_diff": worst_period_diff,
         "worst_period_eng": worst_period_eng,
+        "worst_period_diff": worst_period_diff,
         "worst_period_count": worst_period_count,
-        # Hourly fields (defaults)
-        "peak_hour": -1,
-        "peak_diff": 0,
-        "peak_eng": 0,
-        "valley_hour": -1,
-        "valley_diff": 0,
-        "valley_eng": 0,
-        "best_segment": "N/A",
-        "best_segment_diff": 0,
-        "best_segment_eng": 0,
-        "best_segment_count": 0,
-        "segment_str": "N/A",
-        # Week fields (defaults)
-        "best_day_name": "N/A",
-        "best_day_diff": 0,
-        "best_day_eng": 0,
-        "best_day_count": 0,
-        "worst_day_name": "N/A",
-        "worst_day_diff": 0,
-        "worst_day_eng": 0,
-        "worst_day_count": 0,
-        "weekend_eng": 0,
-        "weekday_eng": 0,
-        "weekend_lift": 0
+        "top3_periods": top3_periods
     }
     
     err = validate_context_fields_by_db(conn, "publish_timing_analysis", context)
@@ -1272,7 +1226,6 @@ def _process_week_analysis(cursor, conn, platform, period_display, date_filter, 
     best_idx = sorted_indices[0]
     worst_idx = sorted_indices[-1]
     
-    top3_str = ", ".join([f"{days[i]} ({eng_diff_pct[i]:+.1f}%)" for i in top3_indices])
     best_day_name = days[best_idx]
     best_day_diff = eng_diff_pct[best_idx]
     best_day_eng = engagement_rates[best_idx]
@@ -1293,47 +1246,27 @@ def _process_week_analysis(cursor, conn, platform, period_display, date_filter, 
     weekday_eng = round(sum(weekday_engs) / len(weekday_engs), 2) if weekday_engs else 0
     weekend_lift = round((weekend_eng - weekday_eng) / weekday_eng * 100, 1) if weekday_eng > 0 else 0
     
-    # Build context with all fields (provide defaults for other dimensions)
+    # Prepare top3 days data for template
+    top3_days = [{"name": days[i], "diff": eng_diff_pct[i]} for i in top3_indices]
+    
+    # Pass raw data to template instead of pre-generated text
     context = {
         "platform": platform,
         "time_analysis": "Week Analysis",
         "period_display": period_display,
         "avg_eng_total": avg_eng_total,
-        "max_diff": max_diff,
-        # Week fields
-        "top3_str": top3_str,
         "best_day_name": best_day_name,
-        "best_day_diff": best_day_diff,
         "best_day_eng": best_day_eng,
+        "best_day_diff": best_day_diff,
         "best_day_count": best_day_count,
         "worst_day_name": worst_day_name,
-        "worst_day_diff": worst_day_diff,
         "worst_day_eng": worst_day_eng,
+        "worst_day_diff": worst_day_diff,
         "worst_day_count": worst_day_count,
+        "top3_days": top3_days,
         "weekend_eng": weekend_eng,
         "weekday_eng": weekday_eng,
-        "weekend_lift": weekend_lift,
-        # Hourly fields (defaults)
-        "peak_hour": -1,
-        "peak_diff": 0,
-        "peak_eng": 0,
-        "valley_hour": -1,
-        "valley_diff": 0,
-        "valley_eng": 0,
-        "best_segment": "N/A",
-        "best_segment_diff": 0,
-        "best_segment_eng": 0,
-        "best_segment_count": 0,
-        "segment_str": "N/A",
-        # Day Parts fields (defaults)
-        "best_period_name": "N/A",
-        "best_period_diff": 0,
-        "best_period_eng": 0,
-        "best_period_count": 0,
-        "worst_period_name": "N/A",
-        "worst_period_diff": 0,
-        "worst_period_eng": 0,
-        "worst_period_count": 0
+        "weekend_lift": weekend_lift
     }
     
     err = validate_context_fields_by_db(conn, "publish_timing_analysis", context)

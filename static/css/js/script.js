@@ -117,9 +117,8 @@ function runCreatorPerformance() {
             showError('creator-performance-result', result.error);
             return;
         }
-        // 后端已经处理了 {{...}} 标记并转换为 <strong class="highlight-data">...</strong>
-        // 直接使用 report_html，无需额外处理
-        const reportText = result.report_html || result.report || 'No report';
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || 'No report';
         
         // Add chart container in result HTML
         let chartHtml = '';
@@ -135,8 +134,7 @@ function runCreatorPerformance() {
         }
         
         resultEl.innerHTML = `
-            <h3>${platform} - ${creatorScope} (${startMonth} to ${endMonth})</h3>
-            <div style="margin-top: 4px; color: var(--text-secondary);">Creator Ecosystem & Tier Performance Data Report</div>
+            <h3>Creator Ecosystem & Tier Performance Data Report in ${platform} - ${creatorScope} (${startMonth} to ${endMonth})</h3>
             <div class="report-text"><div style="margin-top: 12px;">${reportText}</div></div>
             ${chartHtml}
         `;
@@ -252,10 +250,12 @@ function runRegionAdReco() {
             showError('region-ad-result', result.error);
             return;
         }
-        const html = result.report_html || result.report || 'No report';
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || 'No report';
+        
         resultEl.innerHTML = `
             <h3>Regional Advertising Recommendation - ${region}</h3>
-            <div class="report-text"><div style="margin-top: 12px; white-space: pre-wrap;">${html}</div></div>
+            <div class="report-text"><div style="margin-top: 12px; white-space: pre-wrap;">${reportText}</div></div>
             ${result.data ? `
             <div style="display: flex; gap: 20px; margin-top: 30px; flex-wrap: wrap;">
                 <div class="chart-container" style="flex: 1; min-width: 300px;">
@@ -332,10 +332,12 @@ function runDominanceExtended() {
             showError('pd-extended-result', result.error);
             return;
         }
-        const html = result.report_html || result.report || 'No report';
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || 'No report';
+        
         resultEl.innerHTML = `
             <h3>Short Video Platform Dominance Analysis by Country - ${result.country_name || cc}</h3>
-            <div class="report-text"><div style="margin-top: 12px;">${html}</div></div>
+            <div class="report-text"><div style="margin-top: 12px;">${reportText}</div></div>
             <div class="chart-container">
                 <div id="pd-comparison-bar" style="height: 400px; width: 100%;"></div>
             </div>
@@ -1283,30 +1285,8 @@ function runGlobalAnalysis() {
         const totalViews = extraInfo.total_views || 0;
         const avgEngagement = extraInfo.avg_engagement || 0;
         
-        // 处理report文本，只加粗从数据库select出来的数据值
-        let reportText = result.report || '';
-        
-        // 加粗平台名
-        if (extraInfo.platform) {
-            reportText = reportText.replace(new RegExp(`\\b${extraInfo.platform}\\b`, 'gi'), `<span class="highlight-data">${extraInfo.platform}</span>`);
-        }
-        // 加粗年月
-        if (extraInfo.year_month) {
-            reportText = reportText.replace(new RegExp(`\\b${extraInfo.year_month}\\b`, 'g'), `<span class="highlight-data">${extraInfo.year_month}</span>`);
-        }
-        // 加粗国家名
-        if (result.labels && result.labels.length > 0) {
-            result.labels.forEach(country => {
-                if (country && country !== 'N/A') {
-                    reportText = reportText.replace(new RegExp(`\\b${country}\\b`, 'g'), `<span class="highlight-data">${country}</span>`);
-                }
-            });
-        }
-        // 加粗hashtag
-        if (extraInfo.top_hashtag && extraInfo.top_hashtag !== 'N/A') {
-            const hashtagPattern = `#${extraInfo.top_hashtag}`;
-            reportText = reportText.replace(new RegExp(hashtagPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), `<span class="highlight-data">${hashtagPattern}</span>`);
-        }
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || '';
         
         resultEl.innerHTML = `
             <h3>${extraInfo.year_month} ${extraInfo.platform} Global Data Analysis Report</h3>
@@ -1379,21 +1359,8 @@ function runHashtagReport() {
             `;
         }).join('');
         
-        // 处理report文本，加粗从数据库select出来的数据
-        let reportText = result.report || '';
-        if (result.platform) {
-            reportText = reportText.replace(new RegExp(`\\b${result.platform}\\b`, 'gi'), `<span class="highlight-data">${result.platform}</span>`);
-        }
-        if (result.country_code) {
-            reportText = reportText.replace(new RegExp(`\\b${result.country_code}\\b`, 'g'), `<span class="highlight-data">${result.country_code}</span>`);
-        }
-        if (result.hashtags && result.hashtags.length > 0) {
-            result.hashtags.forEach(item => {
-                if (item.hashtag) {
-                    reportText = reportText.replace(new RegExp(`#${item.hashtag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), `<span class="highlight-data">#${item.hashtag}</span>`);
-                }
-            });
-        }
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || '';
         
         resultEl.innerHTML = `
             <h3>${result.platform} - ${result.country_code} Trending Hashtags Analysis</h3>
@@ -1445,55 +1412,10 @@ function runTrendReport() {
             return;
         }
         
-        // 处理report文本，加粗从数据库select出来的数据和输入信息
-        let reportText = result.report || '';
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || '';
         // 移除换行符，确保报告显示为单段
         reportText = reportText.replace(/(\r\n|\n|\r)/gm, ' ').replace(/\s+/g, ' ').trim();
-        
-        // 确保所有<strong>标签内的内容都有highlight-data类（这些是从数据库select出来的数据）
-        reportText = reportText.replace(/<strong>([^<]+)<\/strong>/g, '<strong class="highlight-data">$1</strong>');
-        
-        // 先处理从数据库select出来的趋势类型数据（避免被后续替换影响）
-        if (result.trend_types && result.trend_types.length > 0) {
-            result.trend_types.forEach(item => {
-                if (item.trend_type) {
-                    const trendType = item.trend_type;
-                    
-                    // 方法1: 直接替换所有 "Short:" 为加粗版本（使用split/join确保所有出现都被替换）
-                    const colonPattern = trendType + ':';
-                    // 使用split/join方法，确保替换所有出现（包括第一个和第二个）
-                    // 这个方法不依赖正则表达式，最可靠
-                    if (reportText.includes(colonPattern)) {
-                        reportText = reportText.split(colonPattern).join(`<span class="highlight-data">${trendType}</span>:`);
-                    }
-                    
-                    // 方法2: 替换所有未加粗的趋势类型（没有冒号的）
-                    // 只替换那些还没有被highlight-data包裹的普通文本
-                    const escapedType = trendType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    // 检查是否还有未加粗的
-                    const highlightPattern = `<span class="highlight-data">${trendType}</span>`;
-                    const strongPattern = `<strong class="highlight-data">${trendType}</strong>`;
-                    if (!reportText.includes(highlightPattern) && !reportText.includes(strongPattern)) {
-                        // 如果完全没有被加粗，才进行普通匹配
-                        reportText = reportText.replace(new RegExp(`\\b${escapedType}\\b`, 'g'), `<span class="highlight-data">${trendType}</span>`);
-                    }
-                }
-            });
-        }
-        
-        // 然后加粗输入信息（platform, country_code, start_date, end_date）
-        if (result.platform && !reportText.includes(`<strong class="highlight-data">${result.platform}</strong>`)) {
-            reportText = reportText.replace(new RegExp(`\\b${result.platform}\\b`, 'gi'), `<span class="highlight-data">${result.platform}</span>`);
-        }
-        if (result.country_code && !reportText.includes(`<strong class="highlight-data">${result.country_code}</strong>`)) {
-            reportText = reportText.replace(new RegExp(`\\b${result.country_code}\\b`, 'g'), `<span class="highlight-data">${result.country_code}</span>`);
-        }
-        if (result.start_date && !reportText.includes(`<strong class="highlight-data">${result.start_date}</strong>`)) {
-            reportText = reportText.replace(new RegExp(`\\b${result.start_date}\\b`, 'g'), `<span class="highlight-data">${result.start_date}</span>`);
-        }
-        if (result.end_date && !reportText.includes(`<strong class="highlight-data">${result.end_date}</strong>`)) {
-            reportText = reportText.replace(new RegExp(`\\b${result.end_date}\\b`, 'g'), `<span class="highlight-data">${result.end_date}</span>`);
-        }
         
         resultEl.innerHTML = `
             <h3>${result.platform} - ${result.country_code} Content Trend Type Analysis</h3>
@@ -1551,52 +1473,10 @@ function runPublishTimingAnalysis() {
             'Hourly': 'Hourly Analysis'
         };
         
-        // 处理report文本，加粗从数据库select出来的数据
-        let reportText = result.report || '';
-        // 1) 移除换行与多余空格，合并成单段
+        // 直接使用后端处理好的report_html，所有加粗通过数据库模板中的{{}}标记处理
+        let reportText = result.report_html || result.report || '';
+        // 移除换行与多余空格，合并成单段
         reportText = reportText.replace(/(\r\n|\n|\r)/gm, ' ').replace(/\s+/g, ' ').trim();
-
-        const data = result.data || {};
-
-        // 2) 统一给 <strong> 标签添加 highlight-data 类
-        reportText = reportText.replace(/<strong>([^<]+)<\/strong>/g, '<strong class="highlight-data">$1</strong>');
-
-        // 3) 额外加粗平台名、时间段等（若尚未包含 highlight-data）
-        if (result.platform && !reportText.includes(`<strong class="highlight-data">${result.platform}</strong>`)) {
-            reportText = reportText.replace(new RegExp(`\\b${result.platform}\\b`, 'gi'), `<span class="highlight-data">${result.platform}</span>`);
-        }
-
-        if (result.period_display && !reportText.includes(`<strong class="highlight-data">${result.period_display}</strong>`)) {
-            reportText = reportText.replace(new RegExp(`\\b${result.period_display}\\b`, 'g'), `<span class="highlight-data">${result.period_display}</span>`);
-        }
-
-        // 4) 根据分析类型加粗相关数据（如果还没有被<strong>标签包裹）
-        if (result.time_analysis === 'Day Parts' && data.periods) {
-            data.periods.forEach(period => {
-                if (period && !reportText.includes(`<strong class="highlight-data">${period}</strong>`)) {
-                    reportText = reportText.replace(new RegExp(`\\b${period}\\b`, 'g'), `<span class="highlight-data">${period}</span>`);
-                }
-            });
-        } else if (result.time_analysis === 'Week Analysis' && data.days) {
-            data.days.forEach(day => {
-                if (day && !reportText.includes(`<strong class="highlight-data">${day}</strong>`)) {
-                    reportText = reportText.replace(new RegExp(`\\b${day}\\b`, 'g'), `<span class="highlight-data">${day}</span>`);
-                }
-            });
-        } else if (result.time_analysis === 'Hourly' && data.hours) {
-            if (data.peak_hour !== null && data.peak_hour !== undefined) {
-                const peakHourStr = `${data.peak_hour}:00`;
-                if (!reportText.includes(`<strong class="highlight-data">${peakHourStr}</strong>`)) {
-                    reportText = reportText.replace(new RegExp(`\\b${peakHourStr}\\b`, 'g'), `<span class="highlight-data">${peakHourStr}</span>`);
-                }
-            }
-            if (data.valley_hour !== null && data.valley_hour !== undefined) {
-                const valleyHourStr = `${data.valley_hour}:00`;
-                if (!reportText.includes(`<strong class="highlight-data">${valleyHourStr}</strong>`)) {
-                    reportText = reportText.replace(new RegExp(`\\b${valleyHourStr}\\b`, 'g'), `<span class="highlight-data">${valleyHourStr}</span>`);
-                }
-            }
-        }
         
         resultEl.innerHTML = `
             <h3>${result.platform} - ${analysisTypeNames[result.time_analysis] || result.time_analysis} Optimal Publish Time Analysis</h3>
