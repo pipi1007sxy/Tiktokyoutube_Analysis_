@@ -1579,17 +1579,61 @@ def admin_update_content():
     conn = create_connection()
     try:
         cursor = conn.cursor()
+        
+        # Check if content exists
+        cursor.execute("SELECT content_id FROM Content WHERE content_id = ?", (content_id,))
+        if not cursor.fetchone():
+            return jsonify({"error": "Content not found"}), 404
+        
+        # Handle country update if provided
+        country_id = None
+        if data.get('country_code'):
+            cursor.execute("INSERT OR IGNORE INTO Country (country_code, country_name) VALUES (?, ?)",
+                         (data.get('country_code'), data.get('country_code')))
+            cursor.execute("SELECT country_id FROM Country WHERE country_code = ?", (data.get('country_code'),))
+            country_id = cursor.fetchone()[0]
+        
+        # Handle author update if provided
+        author_id = None
+        if data.get('author_handle'):
+            cursor.execute("INSERT OR IGNORE INTO Author (author_handle, creator_tier) VALUES (?, ?)",
+                         (data.get('author_handle'), data.get('creator_tier', 'Mid')))
+            cursor.execute("SELECT author_id FROM Author WHERE author_handle = ?", (data.get('author_handle'),))
+            author_id = cursor.fetchone()[0]
+        
+        # Build update query
         updates = []
         values = []
-        if data.get('views') is not None:
-            updates.append("views = ?")
-            values.append(data.get('views'))
+        
+        if data.get('platform'):
+            updates.append("platform = ?")
+            values.append(data.get('platform'))
+        
         if data.get('category'):
             updates.append("category = ?")
             values.append(data.get('category'))
+        
+        if data.get('views') is not None:
+            updates.append("views = ?")
+            values.append(data.get('views'))
+        
         if data.get('likes') is not None:
             updates.append("likes = ?")
             values.append(data.get('likes'))
+        
+        if country_id is not None:
+            updates.append("country_id = ?")
+            values.append(country_id)
+        
+        if author_id is not None:
+            updates.append("author_id = ?")
+            values.append(author_id)
+        
+        if data.get('publish_date'):
+            updates.append("publish_date_approx = ?")
+            values.append(data.get('publish_date'))
+            updates.append("year_month = ?")
+            values.append(data.get('publish_date', '')[:7])
         
         if not updates:
             return jsonify({"error": "No fields to update"}), 400
@@ -1597,11 +1641,13 @@ def admin_update_content():
         values.append(content_id)
         cursor.execute(f"UPDATE Content SET {', '.join(updates)} WHERE content_id = ?", values)
         conn.commit()
+        
         if cursor.rowcount > 0:
             return jsonify({"success": True, "message": "Content updated successfully"})
         else:
             return jsonify({"error": "Content not found"}), 404
     except Exception as e:
+        conn.rollback()
         return jsonify({"error": str(e)}), 400
     finally:
         conn.close()
@@ -1623,7 +1669,7 @@ def admin_list_content():
             FROM Content c
             LEFT JOIN Country co ON c.country_id = co.country_id
             LEFT JOIN Author a ON c.author_id = a.author_id
-            ORDER BY c.content_id
+            ORDER BY c.rowid DESC
             LIMIT ? OFFSET ?
         """, (per_page, (page - 1) * per_page))
         results = cursor.fetchall()

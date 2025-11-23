@@ -129,6 +129,51 @@
             background: transparent;
             padding: 0;
         }
+        #content-list > .pagination {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+            padding: 10px 20px;
+            width: 100%;
+        }
+        .pagination {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+            padding: 10px 20px;
+            width: 100%;
+        }
+        .pagination-btn {
+            padding: 8px 16px;
+            border: 1.5px solid rgba(0, 0, 0, 0.08);
+            border-radius: 12px;
+            background: var(--bg-card);
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s;
+        }
+        .pagination-btn:hover:not(:disabled) {
+            background: var(--morandi-sage);
+            color: white;
+            border-color: var(--morandi-sage);
+        }
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .pagination-info {
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            margin: 0 10px;
+        }
     </style>
 </head>
 <body>
@@ -268,7 +313,7 @@
                 if (result.success) {
                     alert(result.message);
                     closeModal();
-                    loadContentList();
+                    loadContentList(currentPage);
                 } else {
                     alert(result.error || 'Operation failed');
                 }
@@ -291,7 +336,9 @@
             .then(result => {
                 if (result.success) {
                     alert(result.message);
-                    loadContentList();
+                    // After deletion, check if current page still has content
+                    // If not, go to previous page or first page
+                    loadContentList(currentPage);
                 } else {
                     alert(result.error || 'Delete failed');
                 }
@@ -302,11 +349,17 @@
             });
         }
 
-        function loadContentList() {
+        let currentPage = 1;
+        const perPage = 20;
+        let totalPages = 1;
+        let totalItems = 0;
+
+        function loadContentList(page = 1) {
+            currentPage = page;
             const listEl = document.getElementById('content-list');
             listEl.innerHTML = '<div style="text-align: center; padding: 20px;">Loading...</div>';
             
-            fetch('/api/admin/list-content?page=1&per_page=50')
+            fetch(`/api/admin/list-content?page=${page}&per_page=${perPage}`)
                 .then(res => res.json())
                 .then(data => {
                     if (data.error) {
@@ -314,46 +367,73 @@
                         return;
                     }
                     
+                    totalItems = data.total || 0;
+                    totalPages = Math.ceil(totalItems / perPage) || 1;
+                    
                     if (data.content.length === 0) {
                         listEl.innerHTML = '<div style="text-align: center; padding: 20px;">No content found</div>';
                         return;
                     }
                     
-                    listEl.innerHTML = `
-                        <table class="content-table">
-                            <thead>
-                                <tr>
-                                    <th>Content ID</th>
-                                    <th>Platform</th>
-                                    <th>Category</th>
-                                    <th>Views</th>
-                                    <th>Likes</th>
-                                    <th>Country</th>
-                                    <th>Author</th>
-                                    <th>Publish Date</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${data.content.map(item => `
+                    const tableHtml = `
+                        <div style="grid-column: 1 / -1; width: 100%;">
+                            <table class="content-table">
+                                <thead>
                                     <tr>
-                                        <td>${item.content_id}</td>
-                                        <td>${item.platform}</td>
-                                        <td>${item.category || 'N/A'}</td>
-                                        <td>${item.views.toLocaleString()}</td>
-                                        <td>${item.likes.toLocaleString()}</td>
-                                        <td>${item.country_code || 'N/A'}</td>
-                                        <td>${item.author_handle || 'N/A'}</td>
-                                        <td>${item.publish_date || 'N/A'}</td>
-                                        <td>
-                                            <button class="btn-edit" onclick="showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})">Edit</button>
-                                            <button class="btn-delete" onclick="deleteContent('${item.content_id}')">Delete</button>
-                                        </td>
+                                        <th>Content ID</th>
+                                        <th>Platform</th>
+                                        <th>Category</th>
+                                        <th>Views</th>
+                                        <th>Likes</th>
+                                        <th>Country</th>
+                                        <th>Author</th>
+                                        <th>Publish Date</th>
+                                        <th>Actions</th>
                                     </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    ${data.content.map(item => `
+                                        <tr>
+                                            <td>${item.content_id}</td>
+                                            <td>${item.platform}</td>
+                                            <td>${item.category || 'N/A'}</td>
+                                            <td>${item.views.toLocaleString()}</td>
+                                            <td>${item.likes.toLocaleString()}</td>
+                                            <td>${item.country_code || 'N/A'}</td>
+                                            <td>${item.author_handle || 'N/A'}</td>
+                                            <td>${item.publish_date || 'N/A'}</td>
+                                            <td>
+                                                <button class="btn-edit" onclick="showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})">Edit</button>
+                                                <button class="btn-delete" onclick="deleteContent('${item.content_id}')">Delete</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
                     `;
+                    
+                    const paginationHtml = `
+                        <div class="pagination" style="grid-column: 1 / -1; width: 100%;">
+                            <button class="pagination-btn" onclick="loadContentList(1)" ${currentPage === 1 ? 'disabled' : ''}>
+                                First
+                            </button>
+                            <button class="pagination-btn" onclick="loadContentList(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>
+                                Previous
+                            </button>
+                            <span class="pagination-info">
+                                Page ${currentPage} of ${totalPages} (Total: ${totalItems} items)
+                            </span>
+                            <button class="pagination-btn" onclick="loadContentList(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>
+                                Next
+                            </button>
+                            <button class="pagination-btn" onclick="loadContentList(${totalPages})" ${currentPage >= totalPages ? 'disabled' : ''}>
+                                Last
+                            </button>
+                        </div>
+                    `;
+                    
+                    listEl.innerHTML = tableHtml + paginationHtml;
                 })
                 .catch(error => {
                     console.error('Error:', error);
@@ -362,7 +442,7 @@
         }
 
         // Load content list on page load
-        loadContentList();
+        loadContentList(1);
     </script>
 </body>
 </html>

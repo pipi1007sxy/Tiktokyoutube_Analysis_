@@ -32,7 +32,8 @@ Thumbs.db
 instance/
 .webassets-cache
 
-# 注意：数据库文件 (.db) 会被包含在仓库中
-# 如果您不想提交数据库文件，取消下面这行的注释：
-# *.db
+# 数据库文件 - 不应提交到版本控制
+*.db
+*.sqlite
+*.sqlite3
 
