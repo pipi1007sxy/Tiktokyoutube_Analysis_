@@ -851,10 +851,15 @@ def generate_publish_timing_analysis(conn, platform, time_analysis='Hourly', per
     # Build date filter
     date_filter = ""
     params = [platform]
-    if period == 'Custom' and start_month and end_month:
+    # If start_month and end_month are provided, use them regardless of period parameter
+    if start_month and end_month:
         date_filter = " AND c.year_month BETWEEN ? AND ?"
         params.extend([start_month, end_month])
         period_display = f"{start_month} to {end_month}"
+    elif period == 'Custom':
+        # If period is Custom but dates are missing, this is an error case
+        # But we'll let it fall through to All Time for backward compatibility
+        pass
     
     # Process based on time_analysis dimension
     if time_analysis == 'Hourly':
