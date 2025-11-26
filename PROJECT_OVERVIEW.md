@@ -234,7 +234,9 @@
 
 ## 7. 运行与扩展注意
 
-1. **依赖**：`requirements.txt` 列出 Flask、Jinja2、sqlite3、matplotlib、markdown 等依赖。  
+1. **依赖**：  
+   - `requirements.txt` 仅包含线上运行所需依赖（Flask/Jinja2/markdown/gunicorn 等），确保 Render/Heroku 安装过程保持轻量并避免因科学计算库而失败。  
+   - 如需重新清洗 CSV 并刷新 `Tiktok_youtube.db`，先在本地执行 `python -m venv .venv && .venv/Scripts/activate`（或对应 shell 激活），再运行 `pip install -r requirements-data-clean.txt` 安装 pandas，最后执行 `python scripts/clean_and_reseed.py`。完成后将更新后的 `Tiktok_youtube.db` 与必要的 Python 代码同步到 GitHub 即可，无需把 pandas 打包进生产环境。  
 2. **启动**：`python app.py`（或通过 `Procfile` 适配部署环境），会自动初始化 `user.db`、report_* 表。  
 3. **模板扩展**：新增报告类型时，需要在 `report_queries` 中插入 SQL、在 `report_templates` 中定义模板与 metadata.fields，再在 `app.py` 中添加对应业务函数/路由。  
 4. **权限**：登录后 Session 会区分 user/admin；管理员端操作必须保持 Session 有效，否则 API 返回 403。  

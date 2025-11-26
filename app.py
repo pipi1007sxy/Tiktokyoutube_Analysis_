@@ -1,8 +1,6 @@
 from flask import Flask, render_template, request, jsonify, session, redirect
 import sqlite3
 from sqlite3 import Error
-import matplotlib.pyplot as plt
-import matplotlib
 from jinja2 import Environment
 import json
 import html
@@ -12,39 +10,6 @@ try:
     import markdown  # Optional; used to render Markdown to HTML  # pyright: ignore[reportMissingModuleSource]
 except Exception:
     markdown = None
-
-# 全局字体配置 - 修复字体报错
-matplotlib.rcParams['font.size'] = 9
-matplotlib.rcParams['font.weight'] = 'normal'
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['figure.figsize'] = (10, 6) 
-plt.rcParams['figure.dpi'] = 100
-plt.rcParams['savefig.dpi'] = 100
-plt.rcParams['savefig.bbox'] = 'tight'
-
-# 关键修复：强制 Matplotlib 使用非交互式后端，避免线程警告
-plt.switch_backend('Agg')
-
-# 安全的字体配置，避免字体报错
-try:
-    # 尝试使用系统可用字体
-    import matplotlib.font_manager as fm
-    # 获取所有可用字体
-    available_fonts = [f.name for f in fm.fontManager.ttflist]
-    # 优先使用常见字体
-    preferred_fonts = ['DejaVu Sans', 'Arial', 'Liberation Sans', 'sans-serif']
-    font_found = False
-    for font in preferred_fonts:
-        if font in available_fonts or font == 'sans-serif':
-            plt.rcParams["font.family"] = font
-            font_found = True
-            break
-    if not font_found:
-        plt.rcParams["font.family"] = "sans-serif"
-except Exception as e:
-    # 如果字体配置失败，使用默认字体
-    plt.rcParams["font.family"] = "sans-serif"
-    print(f"Font configuration warning: {e}")
 
 # 初始化 Flask 应用
 app = Flask(__name__, template_folder='.')
@@ -154,7 +119,6 @@ def validate_context_fields_by_db(conn, slug, context):
         return f"Missing values for: {', '.join(missing)}. Please check your inputs and try again."
     return None
 def render_report_from_db(conn, slug, context):
-    # Use main DB connection; ensure table and seeds exist
     row = conn.execute("SELECT format, content FROM report_templates WHERE slug=?", (slug,)).fetchone()
     if not row:
         return {
@@ -166,12 +130,11 @@ def render_report_from_db(conn, slug, context):
 
     base_text = _render_template_text(content, context)
     
-    # 直接使用渲染后的文本，不再处理{{}}标记（现在直接在模板中使用HTML标签）
+    # 直接使用渲染后的文本
     processed_text = base_text
     
-    # 统一处理函数：将所有 <strong> 标签转换为 <span class="highlight-data">（与Global模块一致）
+    # 统一处理函数：将所有 <strong> 标签转换为 <span class="highlight-data">
     def convert_strong_to_span(html_text):
-        """将所有 <strong> 标签转换为 <span class="highlight-data">（与Global模块一致）"""
         # 先处理已经有 class 的 <strong class="...">text</strong>，转换为 <span class="highlight-data">text</span>
         pattern_with_class = r'<strong\s+class="[^"]*">([^<]+)</strong>'
         html_text = re.sub(pattern_with_class, r'<span class="highlight-data">\1</span>', html_text)
@@ -240,12 +203,11 @@ def render_report_from_db(conn, slug, context):
 
     return {"text": text_out, "markdown": md_out, "html": html_out}
 
-# (static REQUIRED_TEMPLATE_FIELDS removed; validations now read from DB metadata)
+
 
 def nz(value, default=0):
     return default if value is None else value
 
-    # (templates seeding removed by user request)
 
 ### 核心分析函数
 def list_all_platforms(conn):
@@ -341,14 +303,14 @@ def generate_global_analysis(conn, platform, year_month):
         context = {
             "platform": platform,
             "year_month": year_month,
-            "country_list_text": country_list_text,  # Only data: "Korea (17,051,505 views), UAE (...)"
+            "country_list_text": country_list_text, 
             "total_views": total_views,
             "total_content": total_content,
             "avg_engagement": avg_engagement,
             "top_country": top_country,
             "top_country_views": top_country_views,
             "top_country_pct": top_country_pct,
-            "top_hashtag": top_hashtag  # Only hashtag value, template has the sentence structure
+            "top_hashtag": top_hashtag 
         }
         err = validate_context_fields_by_db(conn, "global_analysis", context)
         if err:
@@ -1698,7 +1660,6 @@ def admin_list_content():
     finally:
         conn.close()
 
-# ====================== New Report APIs ======================
 @app.route('/api/creator-performance', methods=['POST'])
 def api_creator_performance():
     data = request.json
@@ -1746,8 +1707,8 @@ init_user_db()
 try:
     _conn = create_connection()
     if _conn:
-        init_report_template_table(_conn)  # optional safeguard; table exists => no-op
-        init_report_queries_table(_conn)   # ensure queries table
+        init_report_template_table(_conn) 
+        init_report_queries_table(_conn) 
         _conn.close()
 except Exception as _e:
     print(f"Report template init warning: {_e}")
