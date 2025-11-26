@@ -376,7 +376,7 @@ def generate_hashtag_report(conn, platform, country_code, min_views):
                 "country_code": country_code,
                 "hashtag_count": hashtag_count,
                 "min_views": min_views,
-                "hashtag_list_text": hashtag_list_text  # Pre-generated text in Python
+                "hashtag_list_text": hashtag_list_text
             }
             err = validate_context_fields_by_db(conn, "hashtag_report", context)
             if err:
@@ -438,9 +438,9 @@ def generate_trend_report(conn, platform, country_code, start_date, end_date):
                 "country_code": country_code,
                 "start_date": start_date,
                 "end_date": end_date,
-                "top_trend_type": top_trend_type,  # Only data
-                "trend_list_text": trend_list_text,  # Only data: "Viral: 1000000 views, ..."
-                "trend_count": trend_count  # Count for template if logic
+                "top_trend_type": top_trend_type, 
+                "trend_list_text": trend_list_text, 
+                "trend_count": trend_count 
             }
             err = validate_context_fields_by_db(conn, "trend_report", context)
             if err:
@@ -484,6 +484,85 @@ def median_of(values):
         return data[mid]
     return (data[mid - 1] + data[mid]) / 2
 
+def validate_year_month_exists(conn, year_month):
+    """Check if year_month exists in the database"""
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM Content WHERE year_month = ?", (year_month,))
+    count = cursor.fetchone()[0]
+    return count > 0
+
+def validate_date_exists(conn, date_str):
+    """Check if a date (YYYY-MM-DD) exists in the database"""
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM Content WHERE publish_date_approx = ?", (date_str,))
+    count = cursor.fetchone()[0]
+    return count > 0
+
+def validate_year_month(conn, year_month):
+    """Validate single year_month: format and existence in DB"""
+    from datetime import datetime
+    
+    # Validate date format
+    try:
+        datetime.strptime(year_month, '%Y-%m')
+    except ValueError:
+        return "Invalid date format. Please use 'YYYY-MM' format (e.g., '2025-01')"
+    
+    # Validate date exists in database
+    if not validate_year_month_exists(conn, year_month):
+        return f"year_month '{year_month}' does not exist in the database"
+    
+    return None  # All validations passed
+
+def validate_date_range(conn, start_month, end_month):
+    """Validate date range: format, existence in DB, and start < end"""
+    from datetime import datetime
+    
+    # Validate date format
+    try:
+        start_dt = datetime.strptime(start_month, '%Y-%m')
+        end_dt = datetime.strptime(end_month, '%Y-%m')
+    except ValueError:
+        return "Invalid date format. Please use 'YYYY-MM' format (e.g., '2025-01')"
+    
+    # Validate start_month < end_month
+    if start_dt >= end_dt:
+        return "start_month must be earlier than end_month"
+    
+    # Validate dates exist in database
+    if not validate_year_month_exists(conn, start_month):
+        return f"start_month '{start_month}' does not exist in the database"
+    
+    if not validate_year_month_exists(conn, end_month):
+        return f"end_month '{end_month}' does not exist in the database"
+    
+    return None  # All validations passed
+
+def validate_date_range_full(conn, start_date, end_date):
+    """Validate full date range (YYYY-MM-DD): format, existence in DB, and start < end"""
+    from datetime import datetime
+    
+    # Validate date format
+    try:
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    except ValueError:
+        return "Invalid date format. Please use 'YYYY-MM-DD' format (e.g., '2025-01-15')"
+    
+    # Validate start_date < end_date
+    if start_dt >= end_dt:
+        return "start_date must be earlier than end_date"
+    
+    # Validate dates exist in database (check if any content exists in the date range)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM Content WHERE publish_date_approx >= ? AND publish_date_approx <= ?", 
+                   (start_date, end_date))
+    count = cursor.fetchone()[0]
+    if count == 0:
+        return f"No data found between '{start_date}' and '{end_date}' in the database"
+    
+    return None  # All validations passed
+
 def generate_creator_performance(conn, platform, creator_scope, start_month, end_month):
     with conn:
         cursor = conn.cursor()
@@ -509,14 +588,7 @@ def generate_creator_performance(conn, platform, creator_scope, start_month, end
         monthly_data = []
         if len(target_tiers) == 1:
             # Query monthly breakdown for the single tier
-            sql_monthly = """
-                SELECT c.year_month, SUM(c.views) as total_views, COUNT(*) as content_count
-                FROM Content c
-                JOIN Author a ON c.author_id = a.author_id
-                WHERE c.platform = ? AND a.creator_tier = ? AND c.year_month BETWEEN ? AND ?
-                GROUP BY c.year_month
-                ORDER BY c.year_month
-            """
+            sql_monthly = get_sql(conn, "creator_single_tier_monthly")
             monthly_rows = cursor.execute(sql_monthly, (platform, target_tiers[0], start_month, end_month)).fetchall()
             monthly_data = [{"month": r[0], "views": int(r[1] or 0), "count": int(r[2] or 0)} for r in monthly_rows]
         
@@ -634,14 +706,14 @@ def generate_region_ad_recommendation(conn, region):
             "region": region,
             "category_tiktok": category_tiktok,
             "engagement_tiktok": engagement_tiktok,
-            "tiktok_followed_by_text": tiktok_followed_by_text,  # Includes "followed by" but template has full sentence
+            "tiktok_followed_by_text": tiktok_followed_by_text, 
             "category_youtube": category_youtube,
             "engagement_youtube": engagement_youtube,
-            "youtube_followed_by_text": youtube_followed_by_text,  # Includes "followed by" but template has full sentence
-            "best_platform": best_platform,  # Only data, template has full recommendation sentence
-            "best_category": best_category,  # Only data
-            "best_engagement": best_engagement,  # Only data
-            "comparison_engagement": comparison_engagement  # Only data
+            "youtube_followed_by_text": youtube_followed_by_text, 
+            "best_platform": best_platform, 
+            "best_category": best_category, 
+            "best_engagement": best_engagement,
+            "comparison_engagement": comparison_engagement 
         }
         err = validate_context_fields_by_db(conn, "region_ad_recommendation", context)
         if err:
@@ -792,20 +864,6 @@ def get_country_code(conn, country):
 
 
 def generate_publish_timing_analysis(conn, platform, time_analysis='Hourly', period='All Time', start_month=None, end_month=None):
-    """
-    Generate publish timing analysis report with support for multiple dimensions
-    
-    Args:
-        conn: Database connection
-        platform: Platform name (TikTok/YouTube)
-        time_analysis: Analysis dimension ('Hourly', 'Day Parts', 'Week Analysis')
-        period: Analysis period ('All Time', 'Custom')
-        start_month: Start month in format 'YYYY-MM' (required if period='Custom')
-        end_month: End month in format 'YYYY-MM' (required if period='Custom')
-    
-    Returns:
-        Dictionary containing analysis results, charts data, and report
-    """
 
     cursor = conn.cursor()
     period_display = "All Time"
@@ -820,7 +878,6 @@ def generate_publish_timing_analysis(conn, platform, time_analysis='Hourly', per
         period_display = f"{start_month} to {end_month}"
     elif period == 'Custom':
         # If period is Custom but dates are missing, this is an error case
-        # But we'll let it fall through to All Time for backward compatibility
         pass
     
     # Process based on time_analysis dimension
@@ -1303,10 +1360,25 @@ def global_analysis():
     data = request.json
     platform = data.get('platform')
     year_month = data.get('year_month')
+    
+    # Validate required parameters
+    if not platform:
+        return jsonify({"error": "Please provide platform"})
+    
+    if not year_month:
+        return jsonify({"error": "Please provide year_month in format 'YYYY-MM'"})
+    
     conn = create_connection()
-    result = generate_global_analysis(conn, platform, year_month)
-    conn.close()
-    return jsonify(result)
+    try:
+        # Validate year_month (format and existence)
+        validation_error = validate_year_month(conn, year_month)
+        if validation_error:
+            return jsonify({"error": validation_error})
+        
+        result = generate_global_analysis(conn, platform, year_month)
+        return jsonify(result)
+    finally:
+        conn.close()
 
 # removed /api/platform-dominance endpoint per request
 
@@ -1340,13 +1412,21 @@ def trend_report():
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     
+    # Validate required parameters
     if not all([platform, country_code, start_date, end_date]):
         return jsonify({"error": "Please provide platform, country code, start date and end date"})
     
     conn = create_connection()
-    result = generate_trend_report(conn, platform, country_code, start_date, end_date)
-    conn.close()
-    return jsonify(result)
+    try:
+        # Validate date range (format, existence, and start < end)
+        validation_error = validate_date_range_full(conn, start_date, end_date)
+        if validation_error:
+            return jsonify({"error": validation_error})
+        
+        result = generate_trend_report(conn, platform, country_code, start_date, end_date)
+        return jsonify(result)
+    finally:
+        conn.close()
 
 @app.route('/api/publish-timing-analysis', methods=['POST'])
 def publish_timing_analysis():
@@ -1378,19 +1458,17 @@ def publish_timing_analysis():
         return jsonify({"error": "Invalid time_analysis. Must be 'Hourly', 'Day Parts', or 'Week Analysis'"})
     
     # Validate custom period parameters
-    if period == 'Custom':
-        if not all([start_month, end_month]):
-            return jsonify({"error": "For custom period, please provide both start_month and end_month in format 'YYYY-MM'"})
-        # Validate date format
-        try:
-            from datetime import datetime
-            datetime.strptime(start_month, '%Y-%m')
-            datetime.strptime(end_month, '%Y-%m')
-        except ValueError:
-            return jsonify({"error": "Invalid date format. Please use 'YYYY-MM' format (e.g., '2025-01')"})
-    
     conn = create_connection()
     try:
+        if period == 'Custom':
+            if not all([start_month, end_month]):
+                return jsonify({"error": "For custom period, please provide both start_month and end_month in format 'YYYY-MM'"})
+            
+            # Validate date range (format, existence, and start < end)
+            validation_error = validate_date_range(conn, start_month, end_month)
+            if validation_error:
+                return jsonify({"error": validation_error})
+        
         result = generate_publish_timing_analysis(conn, platform, time_analysis, period, start_month, end_month)
         return jsonify(result)
     finally:
@@ -1667,8 +1745,21 @@ def api_creator_performance():
     creator_scope = data.get('creator_scope', 'All (all tiers)')
     start_month = data.get('start_month')
     end_month = data.get('end_month')
+    
+    # Validate required parameters
+    if not platform:
+        return jsonify({"error": "Please provide platform"})
+    
+    if not start_month or not end_month:
+        return jsonify({"error": "Please provide both start_month and end_month in format 'YYYY-MM'"})
+    
     conn = create_connection()
     try:
+        # Validate date range (format, existence, and start < end)
+        validation_error = validate_date_range(conn, start_month, end_month)
+        if validation_error:
+            return jsonify({"error": validation_error})
+        
         result = generate_creator_performance(conn, platform, creator_scope, start_month, end_month)
         return jsonify(result)
     finally:
